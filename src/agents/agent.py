@@ -24,6 +24,7 @@ from tools.emergency_contact_tool import (
 from tools.daily_checkin_tool import daily_checkin, get_checkin_summary
 from tools.anchor_plan_tool import get_anchor_plan, get_anchor_tip
 from tools.quick_command_tool import quick_command
+from tools.partner_match_tool import find_partners, add_partner, get_safety_tips
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -87,6 +88,9 @@ def build_agent(ctx=None):
         get_anchor_plan,
         get_anchor_tip,
         quick_command,
+        find_partners,
+        add_partner,
+        get_safety_tips,
     ]
 
     return create_agent(

@@ -130,6 +130,14 @@ def quick_command(command: str) -> str:
         return _anchor_mode()
     elif cmd in ["撑不住", "救命", "help", "紧急"]:
         return _emergency_mode()
+    elif cmd in ["找搭子", "搭子", "找人玩", "组局"]:
+        return (
+            "🎉 好呀！我帮你找附近的搭子~\n\n"
+            "请告诉我以下信息：\n"
+            "📍 你在哪个城市？\n"
+            "🎯 你想做什么？（开黑/唱歌/吃饭/散步/看电影/打游戏/都行）\n\n"
+            "或者直接说「我在XX，想找人XX」也行，我秒懂！"
+        )
     else:
         return (
             f"不太认识「{command}」这个指令呢~ 试试这些：\n\n"
@@ -138,5 +146,6 @@ def quick_command(command: str) -> str:
             "💢 /骂人 —— 陪你吐槽\n"
             "📖 /故事 —— 讲个小故事\n"
             "🎯 /锚点 —— 今天的小任务\n"
+            "🎉 /找搭子 —— 找同城搭子\n"
             "🆘 /撑不住 —— 需要紧急帮助"
         )
