@@ -1,0 +1,17 @@
+{
+  "records": [
+    {
+      "date": "2026-06-25",
+      "mood_score": 6,
+      "ate_meals": "三餐",
+      "water_cups": 5,
+      "exercise_type": "走路",
+      "exercise_minutes": 30,
+      "sleep_hours": 7.0,
+      "sleep_quality": 0,
+      "note": "",
+      "created_at": "23:36",
+      "updated_at": "23:36"
+    }
+  ]
+}
