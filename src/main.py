@@ -109,16 +109,108 @@ body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 .placeholder-chat p { font-size: 14px; }
 .panda-garden { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 12px 0; }
 .panda-garden span { text-align: center; font-size: 20px; }
+
+/* ===== 设置面板 ===== */
+.settings-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.settings-overlay.show { display: flex; }
+.settings-modal {
+  background: #fff;
+  border-radius: 16px;
+  max-width: 420px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  animation: slideUp 0.25s ease;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px 12px;
+  font-size: 17px;
+  font-weight: 600;
+  border-bottom: 1px solid #f0f0f0;
+}
+.settings-body { padding: 16px 20px; }
+.setting-group {
+  margin-bottom: 18px;
+}
+.setting-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+  margin-bottom: 8px;
+}
+.avatar-picker {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.av-opt {
+  width: 42px; height: 42px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s;
+}
+.av-opt:hover { border-color: #ddd; }
+.av-opt.active { border-color: #6b8e6b; background: #e8f5e9; }
+.bg-picker {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.bg-opt {
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  font-size: 13px;
+  transition: all 0.15s;
+  flex: 1; min-width: 80px; text-align: center;
+}
+.bg-opt.active { border-color: #6b8e6b; }
+.bubble-picker {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.bp-opt {
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.bp-opt.active { border-color: #555; }
+.settings-footer {
+  padding: 12px 20px 18px;
+  display: flex; gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid #f0f0f0;
+}
+
 </style>
 </head>
 <body>
 <div class="container" id="app">
   <div class="header">
-    <div class="panda-avatar">🐼</div>
+    <div class="panda-avatar" id="panda-avatar">🐼</div>
     <div class="header-text">
       <h1>情绪出口</h1>
       <p id="panda-status">团团 · 国家一级保护熬夜动物</p>
     </div>
+    <div style="flex:1;"></div>
+    <button onclick="openSettings()" style="background:none;border:none;font-size:22px;cursor:pointer;color:rgba(255,255,255,0.8);padding:4px;">⚙️</button>
   </div>
   <div class="sidebar-tab">
     <button class="active" onclick="switchTab('chat')">💬 聊天</button>
@@ -188,6 +280,59 @@ body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
       </div>
     </div>
   </div>
+  <!-- 设置面板 -->
+  <div class="settings-overlay" id="settings-overlay" onclick="closeSettings(event)">
+    <div class="settings-modal" onclick="event.stopPropagation()">
+      <div class="settings-header">
+        <span>🎨 个性化设置</span>
+        <button onclick="closeSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="setting-group">
+          <label>🐼 团团头像</label>
+          <div class="avatar-picker" id="avatar-picker">
+            <span class="av-opt" data-avatar="🐼">🐼</span>
+            <span class="av-opt" data-avatar="🎋">🎋</span>
+            <span class="av-opt" data-avatar="🐾">🐾</span>
+            <span class="av-opt" data-avatar="🌱">🌱</span>
+            <span class="av-opt" data-avatar="🦦">🦦</span>
+            <span class="av-opt" data-avatar="🐰">🐰</span>
+            <span class="av-opt" data-avatar="🦊">🦊</span>
+            <span class="av-opt" data-avatar="🐸">🐸</span>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>📝 团团名字</label>
+          <input type="text" id="panda-name-input" value="团团" maxlength="8" oninput="saveSettings()" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:10px;font-size:14px;outline:none;">
+        </div>
+        <div class="setting-group">
+          <label>🖼️ 聊天背景</label>
+          <div class="bg-picker" id="bg-picker">
+            <div class="bg-opt" data-bg="default" style="background:#faf6f2;"><span>☀️ 暖白</span></div>
+            <div class="bg-opt" data-bg="dark" style="background:#2d2d3a;color:#eee;"><span>🌙 深蓝</span></div>
+            <div class="bg-opt" data-bg="star" style="background:#1a1a2e;color:#e0d6ff;"><span>✨ 星空</span></div>
+            <div class="bg-opt" data-bg="mint" style="background:#e8f5e9;color:#2e7d32;"><span>🌿 薄荷</span></div>
+            <div class="bg-opt" data-bg="cream" style="background:#fff8e1;color:#795548;"><span>🍦 奶油</span></div>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>💬 气泡样式</label>
+          <div class="bubble-picker" id="bubble-picker">
+            <div class="bp-opt" data-bubble="green" style="background:#6b8e6b;color:#fff;">🌿 森林</div>
+            <div class="bp-opt" data-bubble="blue" style="background:#5b7db1;color:#fff;">💎 蓝晶</div>
+            <div class="bp-opt" data-bubble="warm" style="background:#d4a574;color:#fff;">🧸 暖棕</div>
+            <div class="bp-opt" data-bubble="pink" style="background:#d4869c;color:#fff;">🌸 粉调</div>
+            <div class="bp-opt" data-bubble="purple" style="background:#8b7bbd;color:#fff;">🔮 紫韵</div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-footer">
+        <button onclick="resetSettings()" style="background:transparent;border:1px solid #ddd;padding:8px 20px;border-radius:10px;cursor:pointer;font-size:13px;color:#666;">重置默认</button>
+        <button onclick="closeSettings()" style="background:#6b8e6b;border:none;padding:8px 20px;border-radius:10px;cursor:pointer;font-size:13px;color:#fff;">完成 ✓</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 <script>
 let msgCount = 0;
@@ -240,7 +385,115 @@ async function sendMsg() {
     loader.remove();
     const reply = data?.output || '…';
     addMsg(reply, 'bot');
-    loadDashboard();
+    // ===== 个性化设置 =====
+const SETTINGS_KEY = 'emotion_outlet_settings';
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (saved.avatar) document.getElementById('panda-avatar').textContent = saved.avatar;
+    if (saved.name) {
+      document.getElementById('panda-name-input').value = saved.name;
+      document.getElementById('panda-status').textContent = saved.name + ' · 国家一级保护熬夜动物';
+    }
+    if (saved.pandaName) {
+      document.getElementById('panda-name-input').value = saved.pandaName;
+      document.getElementById('panda-status').textContent = saved.pandaName + ' · 国家一级保护熬夜动物';
+    }
+    // 背景
+    if (saved.bg) applyBg(saved.bg);
+    // 气泡
+    if (saved.bubble) applyBubble(saved.bubble);
+    // 高亮已选
+    document.querySelectorAll('.av-opt').forEach(el => {
+      if (el.dataset.avatar === (saved.avatar || '🐼')) el.classList.add('active');
+    });
+    document.querySelectorAll('.bg-opt').forEach(el => {
+      if (el.dataset.bg === (saved.bg || 'default')) el.classList.add('active');
+    });
+    document.querySelectorAll('.bp-opt').forEach(el => {
+      if (el.dataset.bubble === (saved.bubble || 'green')) el.classList.add('active');
+    });
+  } catch(e) {}
+}
+function saveSettings() {
+  const s = {
+    avatar: document.querySelector('.av-opt.active')?.dataset.avatar || '🐼',
+    pandaName: document.getElementById('panda-name-input').value || '团团',
+    bg: document.querySelector('.bg-opt.active')?.dataset.bg || 'default',
+    bubble: document.querySelector('.bp-opt.active')?.dataset.bubble || 'green',
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  // 即时生效
+  document.getElementById('panda-avatar').textContent = s.avatar;
+  document.getElementById('panda-status').textContent = s.pandaName + ' · 国家一级保护熬夜动物';
+  applyBg(s.bg);
+  applyBubble(s.bubble);
+}
+function applyBg(bg) {
+  const c = document.getElementById('chat-area');
+  const container = document.querySelector('.container');
+  if (bg === 'default') { c.style.background = ''; container.style.background = ''; return; }
+  const bgs = {
+    dark: 'linear-gradient(135deg, #2d2d3a 0%, #1a1a2e 100%)',
+    star: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+    mint: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+    cream: 'linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%)',
+  };
+  c.style.background = bgs[bg] || '';
+  // 深色背景时文字变白
+  if (bg === 'dark' || bg === 'star') {
+    c.style.color = '#eee';
+    document.querySelectorAll('.msg.bot').forEach(el => el.style.color = '#3d3229');
+  } else {
+    c.style.color = '';
+  }
+}
+function applyBubble(bubble) {
+  const colors = {
+    green: { user: '#6b8e6b', bot: '#fff' },
+    blue: { user: '#5b7db1', bot: '#f0f4ff' },
+    warm: { user: '#d4a574', bot: '#fef6f0' },
+    pink: { user: '#d4869c', bot: '#fef0f3' },
+    purple: { user: '#8b7bbd', bot: '#f3efff' },
+  };
+  const c = colors[bubble] || colors.green;
+  // 存储到全局，供 addMsg 使用
+  window._bubbleColors = c;
+  // 已有消息也更新
+  document.querySelectorAll('.msg.user').forEach(el => el.style.background = c.user);
+  document.querySelectorAll('.msg.bot').forEach(el => el.style.background = c.bot);
+  // 输入按钮颜色
+  document.querySelector('.input-area button').style.background = c.user;
+}
+function openSettings() { document.getElementById('settings-overlay').classList.add('show'); }
+function closeSettings(e) { if (!e || e.target === e.currentTarget || !e) { document.getElementById('settings-overlay').classList.remove('show'); } }
+function resetSettings() {
+  localStorage.removeItem(SETTINGS_KEY);
+  document.querySelector('.av-opt').classList.add('active'); document.querySelectorAll('.av-opt').forEach((el,i) => { if(i>0) el.classList.remove('active'); });
+  document.querySelector('.bg-opt').classList.add('active'); document.querySelectorAll('.bg-opt').forEach((el,i) => { if(i>0) el.classList.remove('active'); });
+  document.querySelector('.bp-opt').classList.add('active'); document.querySelectorAll('.bp-opt').forEach((el,i) => { if(i>0) el.classList.remove('active'); });
+  document.getElementById('panda-name-input').value = '团团';
+  saveSettings();
+}
+// 头像/背景/气泡选择器点击事件
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.av-opt').forEach(el => el.addEventListener('click', function() {
+    document.querySelectorAll('.av-opt').forEach(e => e.classList.remove('active'));
+    this.classList.add('active'); saveSettings();
+  }));
+  document.querySelectorAll('.bg-opt').forEach(el => el.addEventListener('click', function() {
+    document.querySelectorAll('.bg-opt').forEach(e => e.classList.remove('active'));
+    this.classList.add('active'); saveSettings();
+  }));
+  document.querySelectorAll('.bp-opt').forEach(el => el.addEventListener('click', function() {
+    document.querySelectorAll('.bp-opt').forEach(e => e.classList.remove('active'));
+    this.classList.add('active'); saveSettings();
+  }));
+  loadSettings();
+});
+// ===== 设置结束 =====
+
+	loadDashboard();
   } catch(e) {
     loader.remove();
     addMsg('网络开小差了，待会再试试？ 🌱', 'bot');
@@ -250,15 +503,19 @@ function addMsg(text, role) {
   const area = document.getElementById('chat-area');
   const d = document.createElement('div');
   d.className = 'msg ' + role;
+  const settings = localStorage.getItem('emotion_outlet_settings');
+  const saved = settings ? JSON.parse(settings) : {};
+  const avatar = saved.avatar || '🐼';
+  const pandaName = saved.pandaName || '团团';
+  const colors = window._bubbleColors || { user: '#6b8e6b', bot: '#fff' };
+  d.style.background = role === 'user' ? colors.user : colors.bot;
+  if (role !== 'user' && (colors.bot === '#fff' || colors.bot === '#f0f4ff')) {
+    d.style.color = '#3d3229';
+  }
   const now = new Date();
   const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-  if (role==='bot' && text.includes('团团')) {
-    d.innerHTML = '<span class="panda-tag">🎋 团团</span> ' + text.replace('🎋 团团','').trim() + '<span class="time">'+t+'</span>';
-  } else if (role==='bot') {
-    d.innerHTML = '🎋 团团 ' + text + '<span class="time">'+t+'</span>';
-  } else {
-    d.innerHTML = text + '<span class="time">'+t+'</span>';
-  }
+  const tag = role==='bot' ? '<span class="panda-tag">'+avatar+' '+pandaName+'</span> ' : '';
+  d.innerHTML = tag + text + '<span class="time">'+t+'</span>';
   area.appendChild(d);
   area.scrollTop = area.scrollHeight;
   msgCount++;
