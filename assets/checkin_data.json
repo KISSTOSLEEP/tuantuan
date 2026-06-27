@@ -12,6 +12,19 @@
       "note": "",
       "created_at": "23:36",
       "updated_at": "23:36"
+    },
+    {
+      "date": "2026-06-28",
+      "mood_score": 6,
+      "ate_meals": "三餐正常",
+      "water_cups": 0,
+      "exercise_type": "散步",
+      "exercise_minutes": 20,
+      "sleep_hours": 7.0,
+      "sleep_quality": 0,
+      "note": "",
+      "created_at": "00:31",
+      "updated_at": "00:31"
     }
   ]
 }
