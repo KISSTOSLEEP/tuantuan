@@ -26,6 +26,8 @@ from tools.anchor_plan_tool import get_anchor_plan, get_anchor_tip
 from tools.quick_command_tool import quick_command
 from tools.partner_match_tool import find_partners, add_partner, get_safety_tips
 from tools.link_generator_tool import generate_game_link, generate_music_link, generate_meetup_guide, generate_voice_chat_link
+from tools.mood_chart_tool import generate_mood_chart
+from tools.voice_companion_tool import voice_companion
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -96,6 +98,8 @@ def build_agent(ctx=None):
         generate_music_link,
         generate_meetup_guide,
         generate_voice_chat_link,
+        generate_mood_chart,
+        voice_companion,
     ]
 
     return create_agent(

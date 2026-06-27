@@ -96,21 +96,28 @@ def get_safety_tips(scenario: str = "") -> str:
 
 
 @tool
-def add_partner(name: str, city: str, activities: str, intro: str = "", available_time: str = "") -> str:
-    """用户自己发布搭子信息，存入本地搭子池。其他人搜的时候能找到真实用户发布的信息。
-    注意：只存用户真实提交的数据，不生成任何虚构内容。
+def add_partner(name: str, city: str, activities: str, contact: str = "", intro: str = "", available_time: str = "") -> str:
+    """用户自己发布搭子信息，存入本地搭子池。注意：只存用户真实提交的数据，不生成任何虚构内容。
+    contact是用户愿意留下的联系方式（微信号/QQ号/手机号等），可选。
     """
     ctx = request_context.get() or new_context(method="add_partner")
     data = _load_partners()
-    data["partners"].append({
+    entry = {
         "name": name,
         "city": city,
         "activities": activities,
         "intro": intro,
         "available_time": available_time or "待定",
-    })
+    }
+    if contact:
+        entry["contact"] = contact
+    data["partners"].append(entry)
     _save_partners(data)
-    return f"✅ 发布成功！{name}，你已经在 {city} 的搭子池里啦~\n📋 想做的事：{activities}\n💬 介绍：{intro}\n\n⚠️ 提醒：第一次约见面请选公共场所，注意安全！"
+    msg = f"✅ 发布成功！{name}，你已经在 {city} 的搭子池里啦~\n📋 想做的事：{activities}\n💬 介绍：{intro}\n"
+    if contact:
+        msg += f"📞 联系方式已保存，匹配到的人可以直接联系你\n"
+    msg += "\n⚠️ 提醒：第一次约见面请选公共场所，注意安全！"
+    return msg
 
 
 @tool
@@ -125,16 +132,19 @@ def find_partners(city: str, activity: str = "") -> str:
     matched = []
     for p in partners:
         if p["city"] == city:
-            if not activity or activity in p["activities"]:
+            if not activity or any(a.strip() in p["activities"] for a in activity.split("、") if a.strip()):
                 matched.append(p)
 
     if matched:
         result = f"🎉 在 {city} 找到 {len(matched)} 位真实搭子（用户自己发布的）：\n\n"
         for i, p in enumerate(matched, 1):
-            result += f"{i}. {p['name']}\n"
-            result += f"   💬 {p['intro']}\n"
-            result += f"   🕐 {p['available_time']}\n"
-            result += f"   🎯 {p['activities']}\n\n"
+            result += f"{i}. **{p['name']}**\n"
+            result += f"   💬 {p.get('intro', '')}\n"
+            result += f"   🕐 {p.get('available_time', '待定')}\n"
+            result += f"   🎯 {p['activities']}\n"
+            if p.get("contact"):
+                result += f"   📞 联系方式：{p['contact']}\n"
+            result += "\n"
         result += "🌱 第一次见面建议选在公共场所，注意安全！"
         return result
 
