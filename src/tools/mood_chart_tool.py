@@ -482,3 +482,328 @@ def get_achievement_summary() -> str:
 
     except Exception as e:
         return f"❌ 查询失败: {str(e)}"
+
+
+# ========================
+# 新增：情绪出口指数计算
+# ========================
+
+@tool
+def calculate_exit_index() -> str:
+    """计算你的情绪出口指数 —— 综合评估你近期的心理状态。
+    
+    指数公式（参考Wysa的认知弹性指数）：
+    - 打卡完成率 40%
+    - 情绪正向趋势 30%
+    - 连续参与天数 20%
+    - 锚点完成度 10%
+    
+    返回指数得分（0-100）和详细分析，带团团的表情。
+    
+    Returns:
+        情绪出口指数报告
+    """
+    user_id = request_context.get().user_id if request_context.get() else "anonymous"
+    
+    try:
+        from tools.panda_mascot import get_panda_mood, get_panda_encouragement
+        
+        client = get_supabase_client()
+        
+        # 1. 获取打卡数据（最近14天）
+        now = datetime.now()
+        start_14 = (now - timedelta(days=14)).strftime("%Y-%m-%d")
+        
+        checkin_resp = client.table("checkin_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .gte("checkin_date", start_14) \
+            .order("checkin_date", desc=True) \
+            .execute()
+        
+        checkins = checkin_resp.data if checkin_resp and checkin_resp.data else []
+        
+        # 2. 获取情绪记录（最近14天）
+        mood_resp = client.table("mood_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .gte("created_at", start_14) \
+            .order("created_at", desc=True) \
+            .execute()
+        
+        moods = mood_resp.data if mood_resp and mood_resp.data else []
+        
+        if not checkins and not moods:
+            panda = get_panda_mood(None)
+            return (
+                f"{panda}\n\n"
+                f"📊 情绪出口指数: —（暂无数据）\n\n"
+                f"团团说：数据还不够呢，先打几天卡，团团帮你算出专属指数！"
+                f"\n💡 试试用 daily_checkin 记录今天的心情~"
+            )
+        
+        # 3. 计算各维度
+        # 打卡完成率：过去14天实际打卡天数 / 14
+        checkin_days = len(checkins)
+        completion_rate = min(checkin_days / 14 * 100, 100)
+        
+        # 情绪正向趋势：最近的情绪是否在上升
+        mood_scores = []
+        for m in moods:
+            md = dict(m)
+            sc = md.get("mood_score")
+            if sc is not None:
+                mood_scores.append(float(sc))
+        
+        # 如果打卡记录里有情绪分数，也加进去
+        for c in checkins:
+            cd = dict(c)
+            sc = cd.get("mood_score")
+            if sc is not None:
+                mood_scores.append(float(sc))
+        
+        # 按时间排序（假设数据已经按时间倒序，我们先反转）
+        if moods and len(moods) > 1:
+            # 计算趋势：最近3天平均 vs 之前3天平均
+            first_half = mood_scores[:len(mood_scores)//2] if mood_scores else []
+            second_half = mood_scores[len(mood_scores)//2:] if mood_scores else []
+            
+            if first_half and second_half:
+                avg_first = sum(first_half) / len(first_half)
+                avg_second = sum(second_half) / len(second_half)
+                trend_score = min((avg_second / max(avg_first, 0.1)) * 50, 50)
+            else:
+                trend_score = 25
+        else:
+            trend_score = 25
+        
+        # 连续天数
+        streak_score = min(checkin_days * 5, 20) if checkin_days > 0 else 0
+        
+        # 锚点完成度 - 从打卡记录的note字段模糊判断
+        anchor_score = 0
+        anchor_count = 0
+        for c in checkins:
+            cd = dict(c)
+            note = cd.get("notes", "") or ""
+            if "锚点" in str(note) or "anchor" in str(note).lower():
+                anchor_count += 1
+        anchor_score = min(anchor_count * 5, 10)
+        
+        # 4. 综合计算
+        final_score = (
+            completion_rate * 0.40 +
+            trend_score * 0.30 +
+            streak_score * 0.20 +
+            anchor_score * 0.10
+        )
+        final_score = min(max(final_score, 0), 100)
+        
+        # 5. 评级
+        if final_score >= 80:
+            level = "🌳 生机勃勃"
+            level_desc = "你的状态很好！情绪花园很茂盛，继续保持~"
+        elif final_score >= 60:
+            level = "🌿 稳步生长"
+            level_desc = "整体不错，偶尔有起伏是正常的，你已经在很努力地照顾自己了"
+        elif final_score >= 40:
+            level = "🌱 正在发芽"
+            level_desc = "最近可能不太好过，但能坚持记录本身就很厉害了"
+        elif final_score >= 20:
+            level = "🍂 需要温暖"
+            level_desc = "最近可能经历了一些不容易的事，记得团团一直在"
+        else:
+            level = "💧 需要阳光"
+            level_desc = "看起来最近很难熬，要不要试试锚点计划？从小事开始慢慢来"
+        
+        # 6. 趋势描述
+        avg_mood = sum(mood_scores) / len(mood_scores) if mood_scores else 0
+        if mood_scores and len(mood_scores) >= 4:
+            recent_avg = sum(mood_scores[:min(3, len(mood_scores))]) / min(3, len(mood_scores))
+            old_avg = sum(mood_scores[-min(3, len(mood_scores)):]) / min(3, len(mood_scores))
+            if recent_avg > old_avg + 0.5:
+                trend_desc = "📈 上升中"
+            elif recent_avg < old_avg - 0.5:
+                trend_desc = "📉 有所下降"
+            else:
+                trend_desc = "➡️ 平稳"
+        else:
+            trend_desc = "📊 数据不足，再记录几天就能看到趋势了"
+        
+        panda = get_panda_mood(avg_mood if mood_scores else None)
+        encouragement = get_panda_encouragement()
+        
+        lines = [
+            f"🎋🐼🎋🐼🎋🐼🎋🐼🎋🐼🎋🐼🎋",
+            f"",
+            f"📊 情绪出口指数",
+            f"",
+            f"{panda}",
+            f"",
+            f"   综合指数: {final_score:.1f}/100",
+            f"   状态评级: {level}",
+            f"   情绪趋势: {trend_desc}",
+            f"",
+            f"📋 维度拆解",
+            f"   打卡完成率: {completion_rate:.0f}% (过去14天打卡{checkin_days}天)",
+            f"   情绪正向度: {trend_score:.0f}/50",
+            f"   持续参与度: {streak_score:.0f}/20",
+            f"   锚点完成度: {anchor_score:.0f}/10",
+            f"",
+            f"💬 {level_desc}",
+            f"",
+            f"🎯 {encouragement}",
+        ]
+        
+        return "\n".join(lines)
+        
+    except APIError as e:
+        return f"❌ 指数计算失败: {e.message}"
+    except Exception as e:
+        logger.error(f"指数计算异常: {e}")
+        return f"❌ 指数计算失败: {str(e)}"
+
+
+@tool
+def generate_pixel_calendar(year: Optional[int] = None) -> str:
+    """生成像素年历 —— 参考Daylio的年度情绪热力图。
+    用颜色块和表情符号展示一整年的情绪分布。
+    
+    Args:
+        year: 年份，默认今年
+        
+    Returns:
+        像素年历和年度统计
+    """
+    from tools.panda_mascot import get_panda_mood
+    
+    user_id = request_context.get().user_id if request_context.get() else "anonymous"
+    
+    if year is None:
+        year = datetime.now().year
+    
+    try:
+        client = get_supabase_client()
+        
+        # 获取全年的打卡数据
+        start_of_year = f"{year}-01-01"
+        end_of_year = f"{year}-12-31"
+        
+        response = client.table("checkin_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .gte("checkin_date", start_of_year) \
+            .lte("checkin_date", end_of_year) \
+            .order("checkin_date") \
+            .execute()
+        
+        records = response.data if response and response.data else []
+        
+        # 构建月份数据
+        month_names = ["1月", "2月", "3月", "4月", "5月", "6月", 
+                       "7月", "8月", "9月", "10月", "11月", "12月"]
+        
+        month_data = {m: [] for m in month_names}
+        
+        # Daylio风格的像素色块映射
+        PIXEL_MAP = {
+            (9, 10): "🟩",   # 极好 - 深绿
+            (8, 8): "🟢",    # 很好 - 绿
+            (7, 7): "🔵",    # 不错 - 蓝
+            (5, 6): "🟨",    # 一般 - 黄
+            (3, 4): "🟧",    # 不太好 - 橙
+            (1, 2): "🟥",    # 很差 - 红
+            (0, 0): "⬜",    # 无数据 - 白
+        }
+        
+        def get_pixel(score):
+            if score is None:
+                return "⬜"
+            for (lo, hi), pixel in PIXEL_MAP.items():
+                if lo <= score <= hi:
+                    return pixel
+            return "⬜"
+        
+        # 按月份分组
+        for r in records:
+            rd = dict(r)
+            date_str = str(rd.get("checkin_date", ""))
+            if date_str and len(date_str) >= 7:
+                month_num = int(date_str[5:7]) - 1
+                if 0 <= month_num < 12:
+                    score = rd.get("mood_score")
+                    if score is not None:
+                        month_data[month_names[month_num]].append(float(score))
+        
+        # 构建年历
+        lines = [
+            f"🎋 团团说：这是你的 {year} 年情绪像素日历 🎋",
+            f"",
+            f"🟩=极好  🟢=很好  🔵=不错  🟨=一般  🟧=不太好  🟥=很差  ⬜=无记录",
+            f"",
+        ]
+        
+        total_days = 0
+        total_score_sum = 0
+        month_scores = []
+        
+        for month in month_names:
+            scores = month_data[month]
+            if scores:
+                pix = "".join(get_pixel(s) for s in scores)
+                avg = sum(scores) / len(scores)
+                total_days += len(scores)
+                total_score_sum += sum(scores)
+                month_scores.append(avg)
+                lines.append(f"  {month}: {pix}  ({len(scores)}天, 平均{avg:.1f})")
+            else:
+                lines.append(f"  {month}: ⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜  (无记录)")
+        
+        # 年度统计
+        if total_days > 0:
+            year_avg = total_score_sum / total_days
+            best_month_idx = month_scores.index(max(month_scores)) if month_scores else -1
+            worst_month_idx = month_scores.index(min(month_scores)) if month_scores else -1
+            
+            best_month = month_names[best_month_idx] if best_month_idx >= 0 else "?"
+            worst_month = month_names[worst_month_idx] if worst_month_idx >= 0 else "?"
+            
+            # 计算连续打卡最长记录
+            dates_with_data = sorted([str(dict(r).get("checkin_date", "")) for r in records if dict(r).get("checkin_date")])
+            max_streak = 0
+            current_streak = 1
+            for i in range(1, len(dates_with_data)):
+                try:
+                    prev = datetime.strptime(dates_with_data[i-1][:10], "%Y-%m-%d")
+                    curr = datetime.strptime(dates_with_data[i][:10], "%Y-%m-%d")
+                    if (curr - prev).days == 1:
+                        current_streak += 1
+                        max_streak = max(max_streak, current_streak)
+                    else:
+                        current_streak = 1
+                except (ValueError, IndexError):
+                    continue
+            
+            panda = get_panda_mood(year_avg)
+            
+            lines.extend([
+                f"",
+                f"📊 {year} 年度总结",
+                f"   {panda}",
+                f"   总打卡天数: {total_days}天",
+                f"   年度平均情绪: {year_avg:.1f}/10",
+                f"   最佳月份: {best_month} ({max(month_scores):.1f}分)",
+                f"   最差月份: {worst_month} ({min(month_scores):.1f}分)",
+                f"   最长连续打卡: {max_streak}天",
+            ])
+        else:
+            from tools.panda_mascot import get_panda_encouragement
+            lines.append(f"\n📭 {year}年还没有数据哦\n💡 {get_panda_encouragement()}")
+        
+        return "\n".join(lines)
+        
+    except APIError as e:
+        return f"❌ 像素年历生成失败: {e.message}"
+    except Exception as e:
+        logger.error(f"像素年历异常: {e}")
+        return f"❌ 像素年历生成失败: {str(e)}"

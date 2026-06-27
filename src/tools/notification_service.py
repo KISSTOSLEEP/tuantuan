@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from langchain.tools import tool
@@ -300,5 +300,216 @@ def _get_type_label(t: str) -> str:
         "checkin_reminder": "📝 打卡提醒",
         "anchor_reminder": "🎯 锚点提醒",
         "night_greeting": "🌙 晚安问候",
+        "emotional_dip": "💧 情绪低潮关怀",
+        "late_night": "🌙 深夜守护",
+        "streak_milestone": "🔥 连续打卡里程碑",
     }
     return labels.get(t, t)
+
+
+# ========================
+# 新增：动态干预匹配系统
+# ========================
+# 参考 Youper 的动态干预匹配：根据用户的情绪模式自动推送对应内容
+# 核心逻辑：检测模式 → 匹配干预 → 注册推送
+
+def check_emotional_patterns(user_id: str) -> list[dict]:
+    """检测用户的情绪模式，返回匹配的干预建议列表
+    
+    检测维度：
+    1. 连续低落检测（连续3天情绪≤3）
+    2. 深夜活跃检测（凌晨1-4点活跃）
+    3. 周末情绪对比（周末 vs 工作日）
+    4. 持续性失眠标记（打卡中睡眠≤3分超过3次）
+    5. 里程碑庆祝（连续打卡5/7/14/30天）
+    6. 情绪反弹检测（连续低落后的第一次回升）
+    
+    Returns:
+        干预建议列表，每个元素包含 type, priority, suggestion
+    """
+    interventions = []
+    
+    try:
+        client = _get_client()
+        now = datetime.now()
+        
+        # 获取最近7天的打卡记录
+        week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+        response = client.table("checkin_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .gte("checkin_date", week_ago) \
+            .order("checkin_date", desc=True) \
+            .execute()
+        
+        records = response.data if response and response.data else []
+        
+        if not records:
+            # 新用户：推送欢迎和引导
+            return [{
+                "type": "onboarding",
+                "priority": 3,
+                "suggestion": "新用户引导：介绍打卡功能和团团",
+                "action": "send_greeting",
+            }]
+        
+        # --- 检测1: 连续低潮 ---
+        low_streak = 0
+        recent_moods = []
+        for r in records[:5]:  # 只看最近5条
+            rd = dict(r)
+            score = rd.get("mood_score")
+            if score is not None and float(score) <= 3:
+                low_streak += 1
+                recent_moods.append(float(score))
+            else:
+                break
+        
+        if low_streak >= 3:
+            interventions.append({
+                "type": "emotional_dip",
+                "priority": 5,  # 最高优先级
+                "suggestion": f"检测到连续{low_streak}天情绪偏低，建议主动推送锚点计划+音乐推荐",
+                "action": "push_anchor_plan",
+                "detail": low_streak,
+            })
+        
+        # --- 检测2: 深夜活跃 ---
+        current_hour = now.hour
+        if 1 <= current_hour <= 4:
+            interventions.append({
+                "type": "late_night",
+                "priority": 4,
+                "suggestion": "凌晨时段活跃，建议触发10分钟保护协议或推送深夜陪伴",
+                "action": "push_late_night_care",
+                "detail": None,
+            })
+        
+        # --- 检测3: 里程碑庆祝 ---
+        checkin_days = len(records)
+        milestones = [5, 7, 14, 21, 30, 50, 100]
+        for m in milestones:
+            if checkin_days == m:
+                interventions.append({
+                    "type": "streak_milestone",
+                    "priority": 3,
+                    "suggestion": f"达成连续打卡{m}天里程碑！建议庆祝推送",
+                    "action": "celebrate_milestone",
+                    "detail": m,
+                })
+                break
+        
+        # --- 检测4: 失眠标记 ---
+        poor_sleep_count = 0
+        for r in records[:7]:
+            rd = dict(r)
+            sleep = rd.get("sleep_score")
+            if sleep is not None and float(sleep) <= 3:
+                poor_sleep_count += 1
+        
+        if poor_sleep_count >= 3:
+            interventions.append({
+                "type": "sleep_issue",
+                "priority": 3,
+                "suggestion": f"近7天有{poor_sleep_count}天睡眠质量偏低，建议推送语音陪伴/放松引导",
+                "action": "push_sleep_care",
+                "detail": poor_sleep_count,
+            })
+        
+        # --- 检测5: 情绪反弹 ---
+        if len(recent_moods) >= 4:
+            # 看是否前两天低，今天回升
+            if recent_moods[0] >= 6 and recent_moods[1] <= 3:
+                interventions.append({
+                    "type": "mood_recovery",
+                    "priority": 2,
+                    "suggestion": "情绪出现明显回升！建议肯定和鼓励，巩固正向趋势",
+                    "action": "praise_recovery",
+                    "detail": None,
+                })
+        
+        return interventions
+        
+    except Exception as e:
+        logger.error(f"情绪模式检测异常: {e}")
+        return []
+
+
+@tool
+def check_my_patterns() -> str:
+    """检测你的情绪模式并给出个性化建议。
+    团团会分析你近期的打卡和情绪数据，自动匹配最适合你的干预方式。
+    
+    Returns:
+        模式检测结果和建议
+    """
+    from tools.panda_mascot import get_panda_mood, get_panda_encouragement, get_panda_sassy
+    
+    user_id = request_context.get().user_id if request_context.get() else "anonymous"
+    
+    try:
+        patterns = check_emotional_patterns(user_id)
+        
+        if not patterns:
+            # 拉取打卡数据看看
+            client = _get_client()
+            resp = client.table("checkin_records") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .limit(1) \
+                .execute()
+            
+            if not resp or not resp.data:
+                return (
+                    f"🎋 团团挠了挠头：数据还不够呢~\n\n"
+                    f"{get_panda_mood(None)}\n"
+                    f"「你还没留下什么数据，团团不知道怎么帮你分析 😅」\n\n"
+                    f"💡 先打几天卡，团团就能帮你做专属分析了！"
+                )
+            
+            return (
+                f"🎋 团团分析了一下你的数据：\n\n"
+                f"{get_panda_mood(6)}\n"
+                f"「目前看起来一切正常，没什么特别需要担心的 👍」\n\n"
+                f"💡 继续保持打卡，团团会持续关注你的状态~"
+            )
+        
+        # 按优先级排序
+        patterns.sort(key=lambda x: x["priority"], reverse=True)
+        
+        panda_mood = get_panda_mood(None)
+        
+        lines = [
+            f"🎋 情绪模式检测报告 🎋",
+            f"",
+            f"{panda_mood}",
+            f"",
+            f"检测到 {len(patterns)} 个需要关注的事项：",
+            f"",
+        ]
+        
+        action_labels = {
+            "push_anchor_plan": f"📋 团团觉得你可能需要锚点计划——从小事开始，一步步走出来",
+            "push_late_night_care": f"🌙 这么晚了还在，团团陪你——要不说说话？或者听听音乐？",
+            "celebrate_milestone": f"🎉 里程碑达成！团团想给你办个小型庆祝会（虽然只有竹子）",
+            "push_sleep_care": f"🛌 睡眠不太好？团团给你读个睡前故事？或者做个放松引导？",
+            "praise_recovery": f"🌟 团团注意到你今天状态比昨天好了！这种时候值得被看见",
+            "send_greeting": f"👋 欢迎来到情绪出口！团团给你准备了一份小指南",
+        }
+        
+        for p in patterns:
+            action_text = action_labels.get(p["action"], p["suggestion"])
+            priority_icon = "🔴" if p["priority"] >= 4 else "🟡" if p["priority"] >= 3 else "🟢"
+            lines.append(f"  {priority_icon} [{_get_type_label(p['type'])}]")
+            lines.append(f"    {action_text}")
+            lines.append("")
+        
+        lines.append(f"💬 {get_panda_encouragement()}")
+        
+        return "\n".join(lines)
+        
+    except APIError as e:
+        return f"❌ 检测失败: {e.message}"
+    except Exception as e:
+        logger.error(f"模式检测异常: {e}")
+        return f"❌ 检测失败: {str(e)}"

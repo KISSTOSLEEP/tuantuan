@@ -30,9 +30,10 @@ from tools.partner_match_tool import (
     get_partner_square, get_social_platforms,
 )
 from tools.link_generator_tool import generate_game_link, generate_music_link, generate_meetup_guide, generate_voice_chat_link
-from tools.mood_chart_tool import generate_mood_trend_chart, generate_mood_calendar, get_achievement_summary
+from tools.mood_chart_tool import generate_mood_trend_chart, generate_mood_calendar, get_achievement_summary, calculate_exit_index, generate_pixel_calendar
 from tools.voice_companion_tool import voice_companion
-from tools.notification_service import register_push_schedule, list_my_schedules, cancel_push_schedule
+from tools.notification_service import register_push_schedule, list_my_schedules, cancel_push_schedule, check_my_patterns
+from tools.panda_mascot import get_panda_message, generate_mood_garden
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -110,10 +111,15 @@ def build_agent(ctx=None):
         generate_mood_trend_chart,
         generate_mood_calendar,
         get_achievement_summary,
+        calculate_exit_index,
+        generate_pixel_calendar,
         voice_companion,
         register_push_schedule,
         list_my_schedules,
         cancel_push_schedule,
+        check_my_patterns,
+        get_panda_message,
+        generate_mood_garden,
     ]
 
     return create_agent(
