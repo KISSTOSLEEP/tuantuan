@@ -191,6 +191,13 @@ body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 </div>
 <script>
 let msgCount = 0;
+	// 持久化 session_id：页面刷新不丢，同一设备同一 id
+	if (!localStorage.getItem('emotion_exit_session')) {
+	  localStorage.setItem('emotion_exit_session', 
+	    'web_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)
+	  );
+	}
+	const SESSION_ID = localStorage.getItem('emotion_exit_session');
 function switchTab(tab) {
   document.querySelectorAll('.sidebar-tab button').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.sidebar-panel').forEach(p=>p.classList.remove('active'));
@@ -227,12 +234,13 @@ async function sendMsg() {
     const res = await fetch('/chat_api', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({text: text, session_id: 'web'})
+      body: JSON.stringify({text: text, session_id: SESSION_ID})
     });
     const data = await res.json();
     loader.remove();
     const reply = data?.output || '…';
     addMsg(reply, 'bot');
+    loadDashboard();
   } catch(e) {
     loader.remove();
     addMsg('网络开小差了，待会再试试？ 🌱', 'bot');
@@ -265,17 +273,32 @@ function addLoader() {
   area.scrollTop = area.scrollHeight;
   return d;
 }
-// 预设数据展示（从agent获取真实数据后更新）
-setInterval(async ()=>{
+// 仪表盘数据刷新
+async function loadDashboard() {
   try {
-    const res = await fetch('/chat_api', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:'帮我查一下我的情绪指数', session_id:'web_meta'})
-    });
-    // don't block UI
+    const res = await fetch('/dashboard?session_id=' + encodeURIComponent(SESSION_ID));
+    const d = await res.json();
+    document.getElementById('streak-days').textContent = d.streak_days ?? '--';
+    document.getElementById('exit-index').textContent = d.exit_index ?? '--';
+    document.getElementById('total-days').textContent = d.total_days ?? '0';
+    const bar = document.getElementById('mood-bar');
+    if (d.mood_values && d.mood_values.length > 0) {
+      bar.innerHTML = d.mood_values.map(v => {
+        const h = Math.max(4, v * 10);
+        const colors = ['#dc3545','#f76c5e','#ffb347','#9acd32','#28a745','#20c997','#17a2b8'];
+        const c = colors[Math.min(6, Math.floor(v))] || '#ddd';
+        return '<div class="col" style="background:'+c+';height:'+h+'px;" title="'+v+'"></div>';
+      }).join('');
+    }
+    const garden = document.getElementById('mood-garden');
+    if (d.garden) garden.innerHTML = d.garden;
+    if (d.achievement && d.achievement !== '多说说话解锁数据~') {
+      document.getElementById('stats-panel').innerHTML =
+        '<div style="text-align:center;padding:30px 0;"><div style="font-size:48px;margin-bottom:12px;">🏆</div><p style="white-space:pre-wrap;font-size:13px;color:#555;">' + d.achievement + '</p></div>';
+    }
   } catch(e) {}
-}, 300000);
+}
+loadDashboard();
 </script>
 </body>
 </html>"""
@@ -823,7 +846,7 @@ async def chat_api(request: Request) -> Dict[str, Any]:
             return {"output": "说点什么呀~ 🐼", "session_id": session_id}
 
         ctx = new_context(method="chat_api", headers=request.headers)
-        ctx.run_id = f"chat_{session_id}_{uuid.uuid4().hex[:8]}"
+        ctx.run_id = f"chat_{session_id}"
         request_context.set(ctx)
 
         # 转换为 LangGraph 消息格式
@@ -856,6 +879,67 @@ async def chat_api(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"chat_api error: {e}\n{traceback.format_exc()}")
         return {"output": "网络开小差了，待会再试试？ 🌱", "session_id": payload.get("session_id", "default")}
+
+
+@app.get("/dashboard")
+async def dashboard(request: Request) -> Dict[str, Any]:
+    """前端仪表盘数据接口：情绪出口指数 + 成就 + 花园"""
+    try:
+        session_id = request.query_params.get("session_id", "default")
+        from tools.mood_chart_tool import calculate_exit_index, get_achievement_summary, generate_mood_garden
+        from storage.database.supabase_client import get_supabase_client
+
+        sb = get_supabase_client()
+
+        # 情绪出口指数
+        raw = calculate_exit_index(session_id=session_id)
+        try:
+            idx = json.loads(raw) if isinstance(raw, str) else raw
+        except:
+            idx = {"exit_index": 0, "streak_days": 0, "detail": "暂无"}
+
+        # 最近7天情绪
+        mood_labels, mood_values = [], []
+        try:
+            resp = sb.table("mood_records").select("mood_score, created_at").eq("session_id", session_id).order("created_at", desc=True).limit(7).execute()
+            if resp.data:
+                days = list(reversed(resp.data))
+                for d in days:
+                    mood_labels.append((d.get("created_at") or "")[5:10])
+                    mood_values.append(float(d.get("mood_score", 5)))
+        except:
+            pass
+
+        # 成就
+        achv = get_achievement_summary(session_id=session_id)
+        # 花园
+        garden = generate_mood_garden(session_id=session_id, month=None)
+        if isinstance(garden, dict):
+            garden = garden.get("garden", "🌱")
+        elif not isinstance(garden, str):
+            garden = "🌱"
+
+        # 累计天数
+        total = 0
+        try:
+            cnt = sb.table("mood_records").select("id", count="exact").eq("session_id", session_id).execute()
+            total = getattr(cnt, "count", 0) or (len(cnt.data) if cnt.data else 0)
+        except:
+            pass
+
+        return {
+            "streak_days": idx.get("streak_days", 0) if isinstance(idx, dict) else 0,
+            "exit_index": idx.get("exit_index", 0) if isinstance(idx, dict) else 0,
+            "total_days": total,
+            "mood_labels": mood_labels,
+            "mood_values": mood_values,
+            "garden": garden,
+            "achievement": achv if isinstance(achv, str) else (achv.get("summary", str(achv)) if isinstance(achv, dict) else str(achv))
+        }
+    except Exception as e:
+        logger.error(f"/dashboard error: {e}")
+        return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":"多说说话解锁数据~"}
+
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_ui():
