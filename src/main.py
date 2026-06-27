@@ -11,7 +11,7 @@ import cozeloop
 import uvicorn
 import time
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
@@ -55,6 +55,230 @@ from coze_coding_utils.log.loop_trace import init_run_config, init_agent_config
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
+
+FRONTEND_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>情绪出口 · 团团陪你</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f5f0eb; min-height: 100vh; color: #3d3229; }
+.container { max-width: 480px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; background: #faf6f2; }
+.header { background: linear-gradient(135deg, #6b8e6b 0%, #8fbc8f 100%); padding: 16px 20px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; }
+.panda-avatar { width: 48px; height: 48px; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.header-text h1 { font-size: 18px; color: #fff; font-weight: 600; }
+.header-text p { font-size: 12px; color: rgba(255,255,255,0.85); }
+.chat-area { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 85%; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.msg.bot { align-self: flex-start; background: #fff; border: 1px solid #eee; border-bottom-left-radius: 4px; color: #3d3229; }
+.msg.user { align-self: flex-end; background: #6b8e6b; color: #fff; border-bottom-right-radius: 4px; }
+.msg .panda-tag { color: #8fbc8f; font-weight: 600; font-size: 13px; }
+.msg .time { font-size: 11px; color: #999; margin-top: 4px; display: block; }
+.input-area { padding: 12px 16px 20px; background: #fff; border-top: 1px solid #eee; display: flex; gap: 8px; align-items: flex-end; }
+.input-area textarea { flex: 1; border: none; background: #f5f0eb; padding: 10px 14px; border-radius: 20px; font-size: 14px; resize: none; min-height: 40px; max-height: 120px; outline: none; font-family: inherit; }
+.input-area button { width: 44px; height: 44px; background: #6b8e6b; border: none; border-radius: 50%; color: #fff; font-size: 20px; cursor: pointer; transition: transform 0.2s; display: flex; align-items: center; justify-content: center; }
+.input-area button:active { transform: scale(0.9); }
+.quick-btns { display: flex; gap: 8px; padding: 8px 16px 0; flex-wrap: wrap; }
+.quick-btns button { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 6px 14px; font-size: 12px; color: #666; cursor: pointer; transition: all 0.2s; }
+.quick-btns button:active { background: #6b8e6b; color: #fff; border-color: #6b8e6b; }
+.sidebar-tab { display: flex; background: #fff; border-bottom: 1px solid #eee; }
+.sidebar-tab button { flex: 1; padding: 10px; border: none; background: #fff; font-size: 13px; color: #999; cursor: pointer; border-bottom: 2px solid transparent; }
+.sidebar-tab button.active { color: #6b8e6b; border-bottom-color: #6b8e6b; font-weight: 600; }
+.sidebar-panel { display: none; padding: 16px; background: #fff; }
+.sidebar-panel.active { display: block; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.metric { background: #faf6f2; padding: 12px; border-radius: 12px; text-align: center; }
+.metric .num { font-size: 24px; font-weight: 700; color: #6b8e6b; }
+.metric .label { font-size: 11px; color: #999; margin-top: 2px; }
+.streak { background: #faf6f2; padding: 16px; border-radius: 12px; text-align: center; margin-bottom: 12px; }
+.streak .title { font-size: 13px; color: #666; }
+.streak .days { font-size: 36px; font-weight: 700; color: #6b8e6b; margin: 4px 0; }
+.streak .sub { font-size: 12px; color: #999; }
+.mood-bar { display: flex; gap: 4px; align-items: flex-end; height: 48px; margin: 12px 0; }
+.mood-bar .col { flex: 1; border-radius: 4px 4px 0 0; min-height: 4px; transition: all 0.3s; }
+.loading { display: flex; align-items: center; justify-content: center; padding: 20px; gap: 6px; }
+.loading span { width: 8px; height: 8px; background: #ccc; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out; }
+.loading span:nth-child(2) { animation-delay: 0.16s; }
+.loading span:nth-child(3) { animation-delay: 0.32s; }
+@keyframes bounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
+.placeholder-chat { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 12px; padding: 40px 20px; color: #ccc; }
+.placeholder-chat .big-panda { font-size: 64px; opacity: 0.6; }
+.placeholder-chat p { font-size: 14px; }
+.panda-garden { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 12px 0; }
+.panda-garden span { text-align: center; font-size: 20px; }
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <div class="header">
+    <div class="panda-avatar">🐼</div>
+    <div class="header-text">
+      <h1>情绪出口</h1>
+      <p id="panda-status">团团 · 国家一级保护熬夜动物</p>
+    </div>
+  </div>
+  <div class="sidebar-tab">
+    <button class="active" onclick="switchTab('chat')">💬 聊天</button>
+    <button onclick="switchTab('mood')">📊 心情</button>
+    <button onclick="switchTab('stats')">🏆 成就</button>
+  </div>
+  <div id="chat-panel" class="sidebar-panel active" style="display:flex;flex-direction:column;flex:1;padding:0;">
+    <div class="chat-area" id="chat-area">
+      <div class="placeholder-chat" id="placeholder">
+        <div class="big-panda">🐼</div>
+        <p>团团在呢，想聊什么都行 🌙</p>
+        <div class="quick-btns" style="justify-content:center;">
+          <button onclick="sendQuick('\u4eca\u5929\u5fc3\u60c5\u4e0d\u592a\u597d')">😔 今天心情不太好</button>
+          <button onclick="sendQuick('\u60f3\u627e\u4eba\u804a\u804a\u5929')">💬 想找人聊聊天</button>
+          <button onclick="sendQuick('\u6709\u70b9\u7126\u8651')">😰 有点焦虑</button>
+        </div>
+      </div>
+    </div>
+    <div class="quick-btns" id="quick-btns" style="display:none;">
+      <button onclick="sendQuick('\u6709\u70b9\u7e41')">😤 有点烦</button>
+      <button onclick="sendQuick('\u60f3\u542c\u97f3\u4e50')">🎵 想听音乐</button>
+      <button onclick="sendQuick('\u60f3\u627e\u642d\u5b50')">🎮 想找搭子</button>
+      <button onclick="sendQuick('\u6253\u5361')">✅ 今日打卡</button>
+    </div>
+    <div class="input-area">
+      <textarea id="input" rows="1" placeholder="说点什么…" onkeydown="handleKey(event)"></textarea>
+      <button onclick="sendMsg()">➤</button>
+    </div>
+  </div>
+  <div id="mood-panel" class="sidebar-panel">
+    <div class="streak">
+      <div class="title">🔥 连续陪伴</div>
+      <div class="days" id="streak-days">--</div>
+      <div class="sub" id="streak-sub">天</div>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <div class="num" id="exit-index">--</div>
+        <div class="label">情绪出口指数</div>
+      </div>
+      <div class="metric">
+        <div class="num" id="total-days">--</div>
+        <div class="label">累计陪伴</div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#666;margin-bottom:8px;">最近7天</div>
+    <div class="mood-bar" id="mood-bar">
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+      <div class="col" style="background:#ddd;height:8px;"></div>
+    </div>
+    <div style="font-size:13px;color:#666;margin:12px 0 8px;">🌺 情绪花园</div>
+    <div class="panda-garden" id="mood-garden">
+      <span>🌱</span><span>🌱</span><span>🌸</span><span>🌿</span><span>🍂</span><span>🌼</span><span>🌸</span>
+      <span>🌸</span><span>🌺</span><span>🌿</span><span>🌱</span><span>🌼</span><span>🌸</span><span>🌺</span>
+    </div>
+  </div>
+  <div id="stats-panel" class="sidebar-panel">
+    <div style="text-align:center;padding:30px 0;color:#ccc;">
+      <div style="font-size:48px;margin-bottom:12px;">🏆</div>
+      <p>多说说话解锁成就~</p>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;text-align:left;">
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let msgCount = 0;
+function switchTab(tab) {
+  document.querySelectorAll('.sidebar-tab button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.sidebar-panel').forEach(p=>p.classList.remove('active'));
+  if (tab==='chat') {
+    document.querySelector('.sidebar-tab button:nth-child(1)').classList.add('active');
+    document.getElementById('chat-panel').classList.add('active');
+    document.getElementById('chat-panel').style.display='flex';
+  } else if (tab==='mood') {
+    document.querySelector('.sidebar-tab button:nth-child(2)').classList.add('active');
+    document.getElementById('mood-panel').classList.add('active');
+  } else {
+    document.querySelector('.sidebar-tab button:nth-child(3)').classList.add('active');
+    document.getElementById('stats-panel').classList.add('active');
+  }
+}
+function handleKey(e) {
+  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+function sendQuick(text) {
+  document.getElementById('input').value = text;
+  sendMsg();
+}
+async function sendMsg() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const area = document.getElementById('chat-area');
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('quick-btns').style.display = 'flex';
+  addMsg(text, 'user');
+  const loader = addLoader();
+  try {
+    const res = await fetch('/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text: text, session_id: 'web'})
+    });
+    const data = await res.json();
+    loader.remove();
+    const reply = data?.messages?.[data.messages.length-1]?.content || data?.output || '…';
+    addMsg(reply, 'bot');
+  } catch(e) {
+    loader.remove();
+    addMsg('网络开小差了，待会再试试？ 🌱', 'bot');
+  }
+}
+function addMsg(text, role) {
+  const area = document.getElementById('chat-area');
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  const now = new Date();
+  const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+  if (role==='bot' && text.includes('团团')) {
+    d.innerHTML = '<span class="panda-tag">🎋 团团</span> ' + text.replace('🎋 团团','').trim() + '<span class="time">'+t+'</span>';
+  } else if (role==='bot') {
+    d.innerHTML = '🎋 团团 ' + text + '<span class="time">'+t+'</span>';
+  } else {
+    d.innerHTML = text + '<span class="time">'+t+'</span>';
+  }
+  area.appendChild(d);
+  area.scrollTop = area.scrollHeight;
+  msgCount++;
+  return d;
+}
+function addLoader() {
+  const area = document.getElementById('chat-area');
+  const d = document.createElement('div');
+  d.className = 'loading';
+  d.innerHTML = '<span></span><span></span><span></span>';
+  area.appendChild(d);
+  area.scrollTop = area.scrollHeight;
+  return d;
+}
+// 预设数据展示（从agent获取真实数据后更新）
+setInterval(async ()=>{
+  try {
+    const res = await fetch('/run', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:'帮我查一下我的情绪指数', session_id:'web_meta'})
+    });
+    // don't block UI
+  } catch(e) {}
+}, 300000);
+</script>
+</body>
+</html>"""
 
 class GraphService:
     def __init__(self):
@@ -586,6 +810,11 @@ async def openai_chat_completions(request: Request):
     finally:
         cozeloop.flush()
 
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_ui():
+    """《情绪出口》前端页面 - 熊猫IP陪伴聊天"""
+    return HTMLResponse(content=FRONTEND_HTML)
 
 @app.get("/health")
 async def health_check():
