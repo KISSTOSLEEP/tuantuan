@@ -224,14 +224,14 @@ async function sendMsg() {
   addMsg(text, 'user');
   const loader = addLoader();
   try {
-    const res = await fetch('/run', {
+    const res = await fetch('/chat_api', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({text: text, session_id: 'web'})
     });
     const data = await res.json();
     loader.remove();
-    const reply = data?.messages?.[data.messages.length-1]?.content || data?.output || '…';
+    const reply = data?.output || '…';
     addMsg(reply, 'bot');
   } catch(e) {
     loader.remove();
@@ -268,7 +268,7 @@ function addLoader() {
 // 预设数据展示（从agent获取真实数据后更新）
 setInterval(async ()=>{
   try {
-    const res = await fetch('/run', {
+    const res = await fetch('/chat_api', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:'帮我查一下我的情绪指数', session_id:'web_meta'})
@@ -810,6 +810,52 @@ async def openai_chat_completions(request: Request):
     finally:
         cozeloop.flush()
 
+
+@app.post("/chat_api")
+async def chat_api(request: Request) -> Dict[str, Any]:
+    """前端聊天专用接口：接收 {text, session_id}，返回 AI 回复"""
+    try:
+        payload = await request.json()
+        text = payload.get("text", "")
+        session_id = payload.get("session_id", "default")
+
+        if not text.strip():
+            return {"output": "说点什么呀~ 🐼", "session_id": session_id}
+
+        ctx = new_context(method="chat_api", headers=request.headers)
+        ctx.run_id = f"chat_{session_id}_{uuid.uuid4().hex[:8]}"
+        request_context.set(ctx)
+
+        # 转换为 LangGraph 消息格式
+        graph_input = {
+            "messages": [{"role": "user", "content": text}]
+        }
+
+        result = await service.run(graph_input, ctx)
+
+        # 提取 AI 回复
+        if result and "messages" in result:
+            msgs = result["messages"]
+            if msgs and len(msgs) > 0:
+                last = msgs[-1]
+                if hasattr(last, "content"):
+                    reply = last.content
+                elif isinstance(last, dict):
+                    reply = last.get("content", "")
+                else:
+                    reply = str(last)
+            else:
+                reply = "嗯？"
+        elif result and isinstance(result, dict):
+            reply = result.get("output", str(result))
+        else:
+            reply = str(result) if result else "…"
+
+        return {"output": reply, "session_id": session_id}
+
+    except Exception as e:
+        logger.error(f"chat_api error: {e}\n{traceback.format_exc()}")
+        return {"output": "网络开小差了，待会再试试？ 🌱", "session_id": payload.get("session_id", "default")}
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_ui():

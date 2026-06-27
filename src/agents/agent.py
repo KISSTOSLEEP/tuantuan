@@ -10,8 +10,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage
-from langchain.agents.middleware import wrap_tool_call
-from langchain.messages import ToolMessage
 from coze_coding_utils.runtime_ctx.context import default_headers
 from storage.memory.memory_saver import get_memory_saver
 
@@ -48,18 +46,6 @@ def _windowed_messages(old, new):
 
 class AgentState(MessagesState):
     messages: Annotated[list[AnyMessage], _windowed_messages]
-
-
-@wrap_tool_call
-def handle_tool_errors(request, handler):
-    """Handle tool execution errors with custom messages."""
-    try:
-        return handler(request)
-    except Exception as e:
-        return ToolMessage(
-            content=f"工具调用时出了点小问题：{str(e)}\n不过没关系，我还在呢，我们接着聊~ 🧡",
-            tool_call_id=request.tool_call["id"],
-        )
 
 
 def build_agent(ctx=None):
@@ -128,5 +114,4 @@ def build_agent(ctx=None):
         tools=tools,
         checkpointer=get_memory_saver(),
         state_schema=AgentState,
-        middleware=[handle_tool_errors],
     )
