@@ -1131,6 +1131,37 @@ async def chat_api(request: Request) -> Dict[str, Any]:
         else:
             reply = str(result) if result else "…"
 
+        # 自动记录情绪（根据用户输入关键词）
+        try:
+            mood_score = 5
+            text_lower = text.lower()
+            # 正向词
+            pos_words = ["开心","高兴","快乐","爽","不错","还好","挺好","棒","好心情","哈哈哈","哈哈","嘿嘿","nice","great","good","幸福","满足","舒服","放松","治愈","温暖","感动"]
+            # 负向词
+            neg_words = ["烦","累","难受","焦虑","压力","emo","崩溃","撑不住","想死","受不了","难过","伤心","哭","委屈","生气","愤怒","痛苦","绝望","失眠","疲惫","孤独","烦躁","抑郁","不安","恐惧","紧张","郁闷","无聊","没劲","没意思"]
+            for w in pos_words:
+                if w in text_lower:
+                    mood_score = min(mood_score + 2, 9)
+            for w in neg_words:
+                if w in text_lower:
+                    mood_score = max(mood_score - 2, 1)
+            if mood_score == 5 and len(text_lower) > 10:
+                mood_score = 6  # 长文本默认偏中性偏好
+            if mood_score != 5 or len(text_lower) > 5:
+                # 写数据库
+                from datetime import datetime
+                from storage.database.supabase_client import get_supabase_client
+                sb = get_supabase_client()
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                sb.table("mood_records").insert({
+                    "user_id": session_id,
+                    "mood_score": mood_score,
+                    "notes": text[:50],
+                    "created_at": now_str
+                }).execute()
+        except:
+            pass  # 静默失败，不影响对话
+
         return {"output": reply, "session_id": session_id}
 
     except Exception as e:
@@ -1143,64 +1174,439 @@ async def dashboard(request: Request) -> Dict[str, Any]:
     """前端仪表盘数据接口：情绪出口指数 + 成就 + 花园"""
     try:
         session_id = request.query_params.get("session_id", "default")
-        from tools.mood_chart_tool import calculate_exit_index, get_achievement_summary, generate_mood_garden
         from storage.database.supabase_client import get_supabase_client
-
         sb = get_supabase_client()
+        now = time.time()
 
-        # 情绪出口指数
-        raw = calculate_exit_index(session_id=session_id)
+        # 读取 mood_records
+        moods = []
         try:
-            idx = json.loads(raw) if isinstance(raw, str) else raw
-        except:
-            idx = {"exit_index": 0, "streak_days": 0, "detail": "暂无"}
+            resp = sb.table("mood_records").select("*").eq("user_id", session_id).order("created_at", desc=True).limit(30).execute()
+            moods = list(reversed(resp.data)) if resp.data else []
+        except: pass
 
-        # 最近7天情绪
+        total_days = len(moods)
+        streak = 0
+        exit_idx = 0
         mood_labels, mood_values = [], []
-        try:
-            resp = sb.table("mood_records").select("mood_score, created_at").eq("session_id", session_id).order("created_at", desc=True).limit(7).execute()
-            if resp.data:
-                days = list(reversed(resp.data))
-                for d in days:
-                    mood_labels.append((d.get("created_at") or "")[5:10])
-                    mood_values.append(float(d.get("mood_score", 5)))
-        except:
-            pass
+        garden_parts = []
+        last_week_scores = []
+        milestones = []
 
-        # 成就
-        achv = get_achievement_summary(session_id=session_id)
-        # 花园
-        garden = generate_mood_garden(session_id=session_id, month=None)
-        if isinstance(garden, dict):
-            garden = garden.get("garden", "🌱")
-        elif not isinstance(garden, str):
-            garden = "🌱"
+        from datetime import datetime, timedelta
 
-        # 累计天数
-        total = 0
-        try:
-            cnt = sb.table("mood_records").select("id", count="exact").eq("session_id", session_id).execute()
-            total = getattr(cnt, "count", 0) or (len(cnt.data) if cnt.data else 0)
-        except:
-            pass
+        # 计算连续天数
+        if moods:
+            seen_dates = set()
+            for m in reversed(moods):
+                d = (m.get("created_at") or "")[:10]
+                seen_dates.add(d)
+            sorted_dates = sorted(seen_dates, reverse=True)
+            streak = 1
+            for i in range(1, len(sorted_dates)):
+                prev = datetime.strptime(sorted_dates[i-1], "%Y-%m-%d")
+                cur = datetime.strptime(sorted_dates[i], "%Y-%m-%d")
+                if (prev - cur).days == 1:
+                    streak += 1
+                else:
+                    break
+
+            # 最近7天情绪趋势
+            for m in moods[-7:]:
+                d = (m.get("created_at") or "")[5:10]
+                s = float(m.get("mood_score", 5))
+                mood_labels.append(d)
+                mood_values.append(s)
+                last_week_scores.append(s)
+                note = m.get("note", "") or ""
+                flower = "🌸" if s >= 8 else "🌼" if s >= 6 else "🌿" if s >= 4 else "🍂" if s >= 2 else "🥀"
+                garden_parts.append(flower)
+
+            # 情绪出口指数 = 近7天均值(50%) + 连续天数分(30%) + 总体量(20%)
+            avg_score = sum(last_week_scores) / max(len(last_week_scores), 1)
+            score_part = (avg_score / 10) * 50
+            streak_part = min(streak / 30, 1) * 30
+            volume_part = min(total_days / 14, 1) * 20
+            exit_idx = round(score_part + streak_part + volume_part)
+
+            # 成就
+            if total_days >= 1: milestones.append("🌱 第一天来啦")
+            if total_days >= 3: milestones.append("💪 坚持3天")
+            if total_days >= 7: milestones.append("🌟 连续一周")
+            if total_days >= 14: milestones.append("🔥 两周了！")
+            if total_days >= 30: milestones.append("🎉 一个月纪念")
+            if streak >= 7: milestones.append("📅 连续7天打卡")
+            if streak >= 14: milestones.append("📅 连续14天打卡")
+            if any(s >= 8 for s in last_week_scores): milestones.append("😊 上周有过好心情")
+            if any(s <= 3 for s in last_week_scores): milestones.append("🫂 上周情绪低落过，但你挺过来了")
+
+        if not milestones:
+            milestones = ["💬 说一句话就开始记录啦", "🌱 每一天都值得被记住"]
+
+        if not garden_parts:
+            garden_parts = ["🌱"]
 
         return {
-            "streak_days": idx.get("streak_days", 0) if isinstance(idx, dict) else 0,
-            "exit_index": idx.get("exit_index", 0) if isinstance(idx, dict) else 0,
-            "total_days": total,
+            "streak_days": streak,
+            "exit_index": exit_idx,
+            "total_days": total_days,
             "mood_labels": mood_labels,
             "mood_values": mood_values,
-            "garden": garden,
-            "achievement": achv if isinstance(achv, str) else (achv.get("summary", str(achv)) if isinstance(achv, dict) else str(achv))
+            "garden": " ".join(garden_parts[-30:]),
+            "achievement": milestones,
+            "last_mood": moods[-1].get("mood_score", 0) if moods else 0
         }
     except Exception as e:
         logger.error(f"/dashboard error: {e}")
-        return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":"多说说话解锁数据~"}
+        return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":["💬 说句话就开始记录啦"],"last_mood":0}
+
+@app.post("/log_mood")
+async def log_mood(request: Request) -> Dict[str, Any]:
+    """前端心情点选记录"""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "default")
+        mood_score = int(data.get("mood_score", 5))
+        note = data.get("note", "")
+
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        from datetime import datetime
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        sb.table("mood_records").insert({
+            "user_id": session_id,
+            "mood_score": mood_score,
+            "notes": note,
+            "created_at": now_str
+        }).execute()
+
+        return {"status": "ok", "mood_score": mood_score}
+    except Exception as e:
+        logger.error(f"/log_mood error: {e}")
+        return {"status": "error", "mood_score": 5}
 
 
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_ui():
-    """《情绪出口》前端页面 - 熊猫IP陪伴聊天"""
+    """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>情绪出口</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;height:100vh;display:flex;flex-direction:column;background:#faf6f2;color:#3d3229;}
+/* 极简顶栏 */
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#fff;border-bottom:1px solid #f0ebe5;flex-shrink:0;}
+.header-left{display:flex;align-items:center;gap:8px;}
+.panda-avatar{font-size:28px;line-height:1;}
+.header-title{font-size:15px;font-weight:600;letter-spacing:0.5px;}
+.header-sub{font-size:11px;color:#b8a89a;margin-top:1px;}
+.header-right{display:flex;gap:6px;}
+.icon-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:6px;border-radius:50%;transition:0.15s;}
+.icon-btn:hover{background:#f5f0eb;}
+/* 聊天区 */
+.chat-wrap{flex:1;overflow-y:auto;padding:16px 16px 8px;scroll-behavior:smooth;}
+.chat-wrap::-webkit-scrollbar{width:4px;}
+.chat-wrap::-webkit-scrollbar-thumb{background:#e0d8d0;border-radius:2px;}
+.empty-state{text-align:center;padding:60px 20px;color:#c4b5a5;}
+.empty-state .panda{font-size:56px;margin-bottom:12px;}
+.empty-state .greeting{font-size:16px;font-weight:500;color:#8b7a6a;margin-bottom:6px;}
+.empty-state .hint{font-size:13px;color:#c4b5a5;}
+.msg{margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;}
+.msg.user{flex-direction:row-reverse;}
+.msg-icon{flex-shrink:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:18px;border-radius:50%;background:#f5f0eb;}
+.msg.user .msg-icon{background:#e8f0e8;}
+.msg-bubble{max-width:76%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.6;word-break:break-word;}
+.msg.user .msg-bubble{background:#6b8e6b;color:#fff;border-bottom-right-radius:4px;}
+.msg.bot .msg-bubble{background:#fff;color:#3d3229;border-bottom-left-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}
+.msg-name{font-size:11px;color:#b8a89a;margin-bottom:2px;}
+.msg.user .msg-name{text-align:right;}
+/* 心情快速记录 */
+.mood-strip{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;background:#fff;border-top:1px solid #f0ebe5;flex-shrink:0;}
+.mood-strip span{font-size:12px;color:#b8a89a;margin-right:4px;}
+.mood-btn{font-size:22px;cursor:pointer;padding:4px 6px;border-radius:8px;transition:0.12s;border:none;background:none;}
+.mood-btn:hover{transform:scale(1.2);background:#f5f0eb;}
+.mood-btn:active{transform:scale(0.95);}
+.mood-btn.active{background:#e8f0e8;}
+/* 输入区 */
+.input-area{display:flex;align-items:center;gap:8px;padding:10px 16px 14px;background:#fff;border-top:1px solid #f0ebe5;flex-shrink:0;}
+.input-area input{flex:1;padding:10px 14px;border:1px solid #ece6df;border-radius:20px;font-size:14px;outline:none;background:#faf6f2;color:#3d3229;}
+.input-area input:focus{border-color:#b8a89a;background:#fff;}
+.input-area input::placeholder{color:#c4b5a5;}
+.input-area button{width:40px;height:40px;border:none;border-radius:50%;background:#6b8e6b;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:0.12s;flex-shrink:0;}
+.input-area button:hover{background:#5a7d5a;}
+/* 侧边面板 - 可收起 */
+.panel-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.2);z-index:500;}
+.panel-overlay.show{display:block;}
+.panel-sheet{position:fixed;bottom:0;left:0;right:0;background:#fff;border-radius:16px 16px 0 0;z-index:501;max-height:65vh;overflow-y:auto;padding:20px 20px 28px;animation:slideUp 0.25s ease;box-shadow:0 -4px 24px rgba(0,0,0,0.08);}
+@keyframes slideUp{from{opacity:0;transform:translateY(40px);}to{opacity:1;transform:translateY(0);}}
+.panel-handle{width:32px;height:4px;background:#e0d8d0;border-radius:2px;margin:0 auto 16px;}
+.panel-title{font-size:16px;font-weight:600;margin-bottom:16px;color:#3d3229;}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.metric-card{background:#faf6f2;border-radius:12px;padding:12px;text-align:center;}
+.metric-card .num{font-size:24px;font-weight:700;color:#6b8e6b;}
+.metric-card .label{font-size:11px;color:#b8a89a;margin-top:2px;}
+.mood-chart{display:flex;align-items:flex-end;gap:4px;height:50px;margin:12px 0 16px;}
+.mood-bar{flex:1;border-radius:3px 3px 0 0;min-height:4px;transition:0.3s;position:relative;}
+.mood-label{font-size:9px;color:#b8a89a;text-align:center;margin-top:2px;}
+.week-labels{display:flex;gap:4px;}
+.week-labels span{flex:1;text-align:center;font-size:9px;color:#b8a89a;}
+.garden{font-size:16px;line-height:1.8;letter-spacing:2px;margin:8px 0 12px;}
+.achievements{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+.achi-item{font-size:13px;color:#6b8e6b;padding:6px 10px;background:#f0f7f0;border-radius:8px;}
+/* 设置面板 - 复用原来的 */
+.settings-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);z-index:1000;align-items:center;justify-content:center;}
+.settings-overlay.show{display:flex;}
+.settings-modal{background:#fff;border-radius:16px;max-width:420px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);animation:slideUp 0.25s ease;}
+.settings-header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;font-size:17px;font-weight:600;border-bottom:1px solid #f0f0f0;}
+.settings-body{padding:16px 20px;}
+.setting-group{margin-bottom:18px;}
+.setting-group label{display:block;font-size:14px;font-weight:500;color:#555;margin-bottom:8px;}
+.avatar-picker{display:flex;gap:8px;flex-wrap:wrap;}
+.av-opt{width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:0.15s;}
+.av-opt:hover{border-color:#ddd;}
+.av-opt.active{border-color:#6b8e6b;background:#e8f5e9;}
+.bg-picker{display:flex;gap:8px;flex-wrap:wrap;}
+.bg-opt{padding:10px 16px;border-radius:12px;cursor:pointer;border:2px solid transparent;font-size:13px;transition:0.15s;flex:1;min-width:80px;text-align:center;}
+.bg-opt.active{border-color:#6b8e6b;}
+.bubble-picker{display:flex;gap:8px;flex-wrap:wrap;}
+.bp-opt{padding:8px 14px;border-radius:10px;cursor:pointer;border:2px solid transparent;font-size:13px;transition:0.15s;}
+.bp-opt.active{border-color:#555;}
+.settings-footer{padding:12px 20px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #f0f0f0;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <div class="panda-avatar" id="panda-avatar">🐼</div>
+    <div>
+      <div class="header-title">情绪出口</div>
+      <div class="header-sub" id="panda-status">团团陪你</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="icon-btn" onclick="openPanel()" title="查看数据">📊</button>
+    <button class="icon-btn" onclick="openSettings()" title="个性化设置">⚙️</button>
+  </div>
+</div>
+
+<div class="chat-wrap" id="chat-area">
+  <div class="empty-state" id="empty-state">
+    <div class="panda">🐼</div>
+    <div class="greeting">今天过得怎么样？</div>
+    <div class="hint">说出来会好一点 🧡</div>
+  </div>
+</div>
+
+<!-- 心情快捷记录 -->
+<div class="mood-strip">
+  <span>此刻心情</span>
+  <button class="mood-btn" onclick="logMood(9)">😊</button>
+  <button class="mood-btn" onclick="logMood(7)">🙂</button>
+  <button class="mood-btn" onclick="logMood(5)">😐</button>
+  <button class="mood-btn" onclick="logMood(3)">😢</button>
+  <button class="mood-btn" onclick="logMood(1)">😤</button>
+</div>
+
+<!-- 输入区 -->
+<div class="input-area">
+  <input id="chat-input" placeholder="想说点什么..." onkeydown="if(event.key==='Enter')sendMsg()">
+  <button onclick="sendMsg()">➤</button>
+</div>
+
+<!-- 数据面板 -->
+<div class="panel-overlay" id="panel-overlay" onclick="closePanel(event)">
+  <div class="panel-sheet" onclick="event.stopPropagation()">
+    <div class="panel-handle"></div>
+    <div class="panel-title">📊 我的情绪记录</div>
+    <div class="metrics" id="metrics">
+      <div class="metric-card"><div class="num" id="streak-num">0</div><div class="label">持续天数</div></div>
+      <div class="metric-card"><div class="num" id="index-num">0</div><div class="label">情绪出口指数</div></div>
+    </div>
+    <div style="font-size:13px;color:#b8a89a;margin-bottom:4px;">最近心情</div>
+    <div class="week-labels" id="week-labels"></div>
+    <div class="mood-chart" id="mood-chart"></div>
+    <div style="font-size:13px;color:#b8a89a;margin-top:12px;margin-bottom:4px;">🌺 情绪花园</div>
+    <div class="garden" id="garden-display">🌱</div>
+    <div style="font-size:13px;color:#b8a89a;margin-bottom:4px;">🏆 成就</div>
+    <div class="achievements" id="achievements-display">
+      <div class="achi-item">💬 说句话就开始记录啦</div>
+    </div>
+  </div>
+</div>
+
+<!-- 设置面板 -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettings(event)">
+  <div class="settings-modal" onclick="event.stopPropagation()">
+    <div class="settings-header"><span>🎨 个性化设置</span><button onclick="closeSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button></div>
+    <div class="settings-body">
+      <div class="setting-group">
+        <label>🐼 团团头像</label>
+        <div class="avatar-picker" id="avatar-picker">
+          <span class="av-opt" data-avatar="🐼">🐼</span><span class="av-opt" data-avatar="🎋">🎋</span><span class="av-opt" data-avatar="🐾">🐾</span>
+          <span class="av-opt" data-avatar="🌱">🌱</span><span class="av-opt" data-avatar="🦦">🦦</span><span class="av-opt" data-avatar="🐰">🐰</span>
+          <span class="av-opt" data-avatar="🦊">🦊</span><span class="av-opt" data-avatar="🐸">🐸</span>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label>📝 团团名字</label>
+        <input type="text" id="panda-name-input" value="团团" maxlength="8" oninput="saveSettings()" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:10px;font-size:14px;outline:none;">
+      </div>
+      <div class="setting-group">
+        <label>🖼️ 聊天背景</label>
+        <div class="bg-picker" id="bg-picker">
+          <div class="bg-opt active" data-bg="default" style="background:#faf6f2;">☀️ 暖白</div>
+          <div class="bg-opt" data-bg="dark" style="background:#2d2d3a;color:#eee;">🌙 深蓝</div>
+          <div class="bg-opt" data-bg="mint" style="background:#e8f5e9;color:#2e7d32;">🌿 薄荷</div>
+          <div class="bg-opt" data-bg="cream" style="background:#fff8e1;color:#795548;">🍦 奶油</div>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label>💬 气泡样式</label>
+        <div class="bubble-picker" id="bubble-picker">
+          <div class="bp-opt active" data-bubble="green" style="background:#6b8e6b;color:#fff;">🌿 森林</div>
+          <div class="bp-opt" data-bubble="blue" style="background:#5b7db1;color:#fff;">💎 蓝晶</div>
+          <div class="bp-opt" data-bubble="warm" style="background:#d4a574;color:#fff;">🧸 暖棕</div>
+          <div class="bp-opt" data-bubble="pink" style="background:#d4869c;color:#fff;">🌸 粉调</div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button onclick="resetSettings()" style="background:transparent;border:1px solid #ddd;padding:8px 20px;border-radius:10px;cursor:pointer;font-size:13px;color:#666;">重置默认</button>
+      <button onclick="closeSettings()" style="background:#6b8e6b;border:none;padding:8px 20px;border-radius:10px;cursor:pointer;font-size:13px;color:#fff;">完成 ✓</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SESSION_KEY = 'eos_session';
+let sessionId = localStorage.getItem(SESSION_KEY);
+if (!sessionId) { sessionId = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); localStorage.setItem(SESSION_KEY, sessionId); }
+const SETTINGS_KEY = 'eos_settings';
+let isSending = false;
+
+// --- 消息 ---
+function addMsg(text, role) {
+  document.getElementById('empty-state')?.remove();
+  const area = document.getElementById('chat-area');
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  const avatar = s.avatar || '🐼';
+  const pname = s.pandaName || '团团';
+  const colors = window._bc || {user:'#6b8e6b',bot:'#fff'};
+  const icon = role === 'user' ? '🧑' : avatar;
+  const name = role === 'user' ? '' : '<div class="msg-name">'+pname+'</div>';
+  d.innerHTML = '<div class="msg-icon">'+icon+'</div><div><div class="msg-name" style="text-align:'+(role==='user'?'right':'left')+';">'+(role==='user'?'你':pname)+'</div><div class="msg-bubble" style="background:'+(role==='user'?colors.user:colors.bot)+';color:'+(role==='user'?'#fff':'#3d3229')+';">'+text+'</div></div>';
+  area.appendChild(d);
+  area.scrollTop = area.scrollHeight;
+}
+function sendMsg() {
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text || isSending) return;
+  inp.value = '';
+  isSending = true;
+  addMsg(text, 'user');
+  document.querySelector('.input-area button').textContent = '…';
+  fetch('/chat_api', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,session_id:sessionId})})
+    .then(r=>r.json()).then(d=>{
+      const reply = d.output || '…';
+      addMsg(reply, 'bot');
+      loadDashboard();
+    }).catch(()=>addMsg('网络开小差了，待会再试试 🌱','bot'))
+    .finally(()=>{isSending=false;document.querySelector('.input-area button').textContent='➤';});
+}
+// --- 心情点选 ---
+function logMood(score) {
+  const emojis = {9:'😊',7:'🙂',5:'😐',3:'😢',1:'😤'};
+  const emoji = emojis[score] || '😐';
+  addMsg('今天心情：'+emoji, 'user');
+  fetch('/log_mood',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,mood_score:score,note:'心情点选'})})
+    .then(r=>r.json()).then(d=>{
+      const replies = {9:'好心情值得被记住 🧡',7:'还不错嘛~',5:'平平淡淡也是真',3:'抱抱你 🫂',1:'我在呢 🫂'};
+      addMsg(replies[score]||'收到啦','bot');
+      loadDashboard();
+    });
+  document.querySelectorAll('.mood-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.mood-btn[onclick*="'+score+'"]')?.classList.add('active');
+  setTimeout(()=>document.querySelector('.mood-btn.active')?.classList.remove('active'),1500);
+}
+// --- 仪表盘 ---
+function loadDashboard() {
+  fetch('/dashboard?session_id='+sessionId).then(r=>r.json()).then(d=>{
+    document.getElementById('streak-num').textContent = d.streak_days || 0;
+    document.getElementById('index-num').textContent = d.exit_index || 0;
+    document.getElementById('garden-display').textContent = d.garden || '🌱';
+    // 柱状图
+    const vals = d.mood_values || [];
+    const labels = d.mood_labels || [];
+    const chart = document.getElementById('mood-chart');
+    const labs = document.getElementById('week-labels');
+    if (vals.length > 0) {
+      const max = 10;
+      chart.innerHTML = vals.map(v => '<div class="mood-bar" style="height:'+(v/max*50)+'px;background:'+(v>=7?'#6b8e6b':v>=5?'#b8d4b8':v>=3?'#e8c4a0':'#d4869c')+';"></div>').join('');
+      labs.innerHTML = labels.map(l => '<span>'+l.slice(-2)+'</span>').join('');
+    } else {
+      chart.innerHTML = '<div style="font-size:12px;color:#c4b5a5;padding:12px 0;">聊聊天就开始记录了 🌱</div>';
+      labs.innerHTML = '';
+    }
+    // 成就
+    const aDiv = document.getElementById('achievements-display');
+    const aList = d.achievement || ['💬 说句话就开始记录啦'];
+    aDiv.innerHTML = aList.map(a => '<div class="achi-item">'+a+'</div>').join('');
+  }).catch(()=>{});
+}
+// --- 面板 ---
+function openPanel(){document.getElementById('panel-overlay').classList.add('show');loadDashboard();}
+function closePanel(e){if(!e||e.target===e.currentTarget)document.getElementById('panel-overlay').classList.remove('show');}
+// --- 设置 ---
+function loadSettings(){
+  const s=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
+  if(s.avatar)document.getElementById('panda-avatar').textContent=s.avatar;
+  document.querySelectorAll('.av-opt').forEach(el=>{if(el.dataset.avatar===(s.avatar||'🐼'))el.classList.add('active');});
+  document.getElementById('panda-name-input').value=s.pandaName||'团团';
+  document.getElementById('panda-status').textContent=(s.pandaName||'团团')+'陪你';
+  document.querySelectorAll('.bg-opt').forEach(el=>{if(el.dataset.bg===(s.bg||'default'))el.classList.add('active');});
+  document.querySelectorAll('.bp-opt').forEach(el=>{if(el.dataset.bubble===(s.bubble||'green'))el.classList.add('active');});
+  if(s.bg)applyBg(s.bg);if(s.bubble)applyBubble(s.bubble);
+}
+function saveSettings(){
+  const s={avatar:document.querySelector('.av-opt.active')?.dataset.avatar||'🐼',pandaName:document.getElementById('panda-name-input').value||'团团',bg:document.querySelector('.bg-opt.active')?.dataset.bg||'default',bubble:document.querySelector('.bp-opt.active')?.dataset.bubble||'green'};
+  localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
+  document.getElementById('panda-avatar').textContent=s.avatar;
+  document.getElementById('panda-status').textContent=s.pandaName+'陪你';
+  applyBg(s.bg);applyBubble(s.bubble);
+}
+function applyBg(bg){
+  const bgs={default:'#faf6f2',dark:'linear-gradient(135deg,#2d2d3a,#1a1a2e)',mint:'linear-gradient(135deg,#e8f5e9,#c8e6c9)',cream:'linear-gradient(135deg,#fff8e1,#ffecb3)'};
+  document.body.style.background=bgs[bg]||bgs.default;
+}
+function applyBubble(bubble){
+  const cs={green:{user:'#6b8e6b',bot:'#fff'},blue:{user:'#5b7db1',bot:'#f0f4ff'},warm:{user:'#d4a574',bot:'#fef6f0'},pink:{user:'#d4869c',bot:'#fef0f3'}};
+  window._bc=cs[bubble]||cs.green;
+  document.querySelectorAll('.msg.user .msg-bubble').forEach(e=>e.style.background=window._bc.user);
+  document.querySelectorAll('.msg.bot .msg-bubble').forEach(e=>{e.style.background=window._bc.bot;e.style.color='#3d3229';});
+}
+function openSettings(){document.getElementById('settings-overlay').classList.add('show');}
+function closeSettings(e){if(!e||e.target===e.currentTarget)document.getElementById('settings-overlay').classList.remove('show');}
+function resetSettings(){localStorage.removeItem(SETTINGS_KEY);loadSettings();saveSettings();}
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('.av-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.av-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
+  document.querySelectorAll('.bg-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.bg-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
+  document.querySelectorAll('.bp-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.bp-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
+  loadSettings();
+});
+// --- 自动加载仪表盘 ---
+setTimeout(loadDashboard, 1000);
+</script>
+</body>
+</html>
+"""
     return HTMLResponse(content=FRONTEND_HTML)
 
 @app.get("/health")
