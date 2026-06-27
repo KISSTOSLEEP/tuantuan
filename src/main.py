@@ -199,6 +199,35 @@ body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   border-top: 1px solid #f0f0f0;
 }
 
+
+/* 小火苗动画 */
+@keyframes flame-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255,107,53,0.3)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 12px rgba(255,107,53,0.6)); transform: scale(1.05); }
+}
+@keyframes flame-glow-blue {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(91,141,238,0.3)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 12px rgba(91,141,238,0.6)); transform: scale(1.05); }
+}
+@keyframes flame-glow-purple {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(155,89,182,0.3)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 12px rgba(155,89,182,0.6)); transform: scale(1.05); }
+}
+#flame-emoji {
+  animation-duration: 2s;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+#flame-emoji.anim-orange { animation-name: flame-glow; }
+#flame-emoji.anim-blue { animation-name: flame-glow-blue; }
+#flame-emoji.anim-purple { animation-name: flame-glow-purple; }
+#flame-emoji.level-0 { filter: none; animation: none; opacity: 0.5; }
+#flame-emoji.level-1 { animation-duration: 3s; }
+#flame-emoji.level-2 { animation-duration: 2s; }
+#flame-emoji.level-3 { animation-duration: 1.5s; }
+#flame-emoji.level-4 { animation-duration: 1s; }
+#flame-emoji.level-5 { animation-duration: 0.7s; }
+
 </style>
 </head>
 <body>
@@ -556,6 +585,34 @@ async function loadDashboard() {
   } catch(e) {}
 }
 loadDashboard();
+
+// --- 小火苗 ---
+function loadFlame() {
+  fetch('/flame?session_id='+sessionId).then(r=>r.json()).then(d=>{
+    const el = document.getElementById('flame-emoji');
+    const nm = document.getElementById('flame-name');
+    const st = document.getElementById('flame-streak');
+    if (!el) return;
+    el.textContent = d.emoji || '💧';
+    nm.textContent = d.name || '小火苗';
+    st.textContent = d.streak + '天';
+    // 颜色
+    el.style.color = d.color || '#ccc';
+    // 动画类
+    el.className = 'level-' + (d.level || 0);
+    if (d.level > 0) {
+      const c = d.color || '#ff6b35';
+      if (c.includes('ff') || c.includes('f5') || c.includes('fa')) el.classList.add('anim-orange');
+      else if (c.includes('5b') || c.includes('7b') || c.includes('8e')) el.classList.add('anim-blue');
+      else if (c.includes('9b') || c.includes('b0') || c.includes('c7')) el.classList.add('anim-purple');
+      else el.classList.add('anim-orange');
+    }
+  }).catch(()=>{});
+}
+// 单独拉火苗，不依赖 loadDashboard
+setTimeout(loadFlame, 500);
+setTimeout(loadFlame, 2000);  // 等数据就绪再拉一次
+
 </script>
 </body>
 </html>"""
@@ -1260,6 +1317,90 @@ async def dashboard(request: Request) -> Dict[str, Any]:
         logger.error(f"/dashboard error: {e}")
         return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":["💬 说句话就开始记录啦"],"last_mood":0}
 
+@app.get("/flame")
+async def get_flame(request: Request) -> Dict[str, Any]:
+    """情绪小火苗：根据连续天数和今日心情返回火焰形态"""
+    try:
+        session_id = request.query_params.get("session_id", "default")
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+
+        # 读最近30条
+        resp = sb.table("mood_records").select("*").eq("user_id", session_id).order("created_at", desc=True).limit(30).execute()
+        moods = list(reversed(resp.data)) if resp.data else []
+        
+        from datetime import datetime, timedelta
+
+        # 计算连续天数（按日期去重）
+        if moods:
+            seen_dates = set()
+            for m in moods:
+                d = (m.get("created_at") or "")[:10]
+                if d: seen_dates.add(d)
+            sorted_dates = sorted(seen_dates, reverse=True)
+            streak = 1
+            for i in range(1, len(sorted_dates)):
+                prev = datetime.strptime(sorted_dates[i-1], "%Y-%m-%d")
+                cur = datetime.strptime(sorted_dates[i], "%Y-%m-%d")
+                if (prev - cur).days == 1:
+                    streak += 1
+                else:
+                    break
+        else:
+            streak = 0
+
+        # 今日心情（最近一条）
+        today_mood = moods[-1].get("mood_score", 5) if moods else 5
+
+        # 火焰等级 = 连续天数
+        if streak >= 30: level = 5
+        elif streak >= 14: level = 4
+        elif streak >= 7: level = 3
+        elif streak >= 3: level = 2
+        elif streak >= 1: level = 1
+        else: level = 0
+
+        # 颜色 = 今日心情
+        mood_colors = {
+            9: "#ff6b35",  # 开心 → 炽热橙红
+            8: "#ff8c42",
+            7: "#ffa500",  # 还行 → 暖橙
+            6: "#ffb84d",
+            5: "#5b8dee",  # 平静 → 蓝色
+            4: "#7ba3f0",
+            3: "#9b59b6",  # 低落 → 紫色
+            2: "#b07cc6",
+            1: "#8e8e8e",  # 很差 → 灰色
+        }
+        color = mood_colors.get(int(today_mood), "#5b8dee")
+        
+        # 形态 emoji
+        level_emojis = ["💧", "✨", "🔥", "🔥🔥", "🔥🔥🔥", "🔥🔥🔥🔥🔥"]
+
+        # 火焰名
+        mood_names = {
+            9: "开心火", 8: "暖阳火", 7: "小太阳",
+            6: "温温火", 5: "平静火", 4: "轻雨火",
+            3: "守护火", 2: "陪伴火", 1: "治愈火"
+        }
+        name = mood_names.get(int(today_mood), "小火苗")
+
+        # 说明文案
+        msgs = ["来聊聊天点燃火苗吧 🌱", "小火苗刚点燃 🔥", "火焰在跳动 🔥🔥", "篝火正旺 🔥🔥🔥", "烈火熊熊 🔥🔥🔥🔥", "不灭之焰 🔥🔥🔥🔥🔥"]
+        
+        return {
+            "streak": streak,
+            "level": level,
+            "color": color,
+            "emoji": level_emojis[level] if level < len(level_emojis) else "🔥🔥🔥🔥🔥",
+            "name": name,
+            "message": msgs[level] if level < len(msgs) else "不灭之焰"
+        }
+    except Exception as e:
+        logger.error(f"/flame error: {e}")
+        return {"streak":0,"level":0,"color":"#ccc","emoji":"💧","name":"小火苗","message":"来聊聊天点燃火苗吧"}
+
+
 @app.post("/log_mood")
 async def log_mood(request: Request) -> Dict[str, Any]:
     """前端心情点选记录"""
@@ -1387,6 +1528,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;h
       <div class="header-title">情绪出口</div>
       <div class="header-sub" id="panda-status">团团陪你</div>
     </div>
+  </div>
+  <div class="header-center" id="flame-display" onclick="openPanel()" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 12px;border-radius:20px;background:rgba(255,255,255,0.6);">
+    <span id="flame-emoji" style="font-size:20px;transition:0.3s;">💧</span>
+    <span id="flame-name" style="font-size:12px;color:#8b7a6a;white-space:nowrap;">小火苗</span>
+    <span id="flame-streak" style="font-size:11px;color:#b8a89a;background:#f5f0eb;padding:1px 6px;border-radius:8px;">0天</span>
   </div>
   <div class="header-right">
     <button class="icon-btn" onclick="openPanel()" title="查看数据">📊</button>
@@ -1601,8 +1747,9 @@ document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('.bp-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.bp-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
   loadSettings();
 });
-// --- 自动加载仪表盘 ---
+// --- 自动加载 ---
 setTimeout(loadDashboard, 1000);
+setTimeout(loadFlame, 1500);
 </script>
 </body>
 </html>
