@@ -1,166 +1,385 @@
+"""搭子匹配工具 - 支持数据库存储 + 搭子广场（冷启动友好版）
+
+核心策略：
+1. 优先展示城市聚合数据（"你的城市有XX人在找搭子"），让用户感觉有人可用
+2. 真实匹配需要用户先发布信息
+3. 同时提供外部平台引流（Soul/探探/Q群等）
 """
-组局匹配工具 - 只存用户真实提交的数据 + 跳转真实交友/游戏平台
-"""
-import os
+
 import json
+import logging
+import os
+from datetime import datetime
+from typing import Any, Optional
+
 from langchain.tools import tool
+from postgrest.exceptions import APIError
+
 from coze_coding_utils.log.write_log import request_context
 from coze_coding_utils.runtime_ctx.context import new_context
+from storage.database.supabase_client import get_supabase_client
 
-DATA_PATH = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets/partner_data.json")
+logger = logging.getLogger(__name__)
 
+# 热门活动类型
+HOT_ACTIVITIES = [
+    "吃饭/探店", "打游戏", "运动健身", "看电影", "逛街",
+    "咖啡/喝酒", "爬山/徒步", "桌游/剧本杀", "学习/自习", "撸猫/遛狗",
+]
 
-def _load_partners():
-    if not os.path.exists(DATA_PATH):
-        return {"partners": []}
-    with open(DATA_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save_partners(data):
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-# ========== 真实社交/交友平台链接 ==========
+# 引流平台信息
 SOCIAL_PLATFORMS = {
-    "交友匹配": [
-        {"name": "Soul", "desc": "不看脸的灵魂社交，兴趣匹配", "link": "https://www.soulapp.cn/", "type": "app"},
-        {"name": "探探", "desc": "滑动匹配，同城速配，用户年轻化", "link": "https://www.tantanapp.com/", "type": "app"},
-        {"name": "青藤之恋", "desc": "高学历实名交友，需学信网认证", "link": "https://www.qingtenghui.com/", "type": "app"},
-        {"name": "陌陌", "desc": "同城综合社交，功能全面", "link": "https://www.immomo.com/", "type": "app"},
-    ],
-    "游戏组队": [
-        {"name": "王者荣耀开黑群", "desc": "QQ群号：929436631（峡谷收菜小队）", "link": "https://qun.qq.com/", "type": "qq_group", "group_id": "929436631"},
-        {"name": "王者荣耀开黑群2", "desc": "QQ群号：611127017（峡谷开黑小分队）", "link": "https://qun.qq.com/", "type": "qq_group", "group_id": "611127017"},
-        {"name": "Discord 游戏社区", "desc": "全球游戏玩家社区，找开黑队友", "link": "https://discord.com/channels/@me", "type": "app"},
-        {"name": "NGA 王者荣耀板块", "desc": "论坛发帖找队友/战队", "link": "https://bbs.nga.cn/thread.php?fid=549", "type": "web"},
-        {"name": "王者荣耀贴吧", "desc": "贴吧找开黑队友", "link": "https://tieba.baidu.com/f?kw=王者荣耀", "type": "web"},
-    ],
-    "音乐同好": [
-        {"name": "网易云音乐", "desc": "歌单分享，评论区找同好", "link": "https://music.163.com/", "type": "app"},
-        {"name": "QQ音乐", "desc": "音乐社交，一起听歌", "link": "https://y.qq.com/", "type": "app"},
-    ],
-    "本地组局": [
-        {"name": "小红书", "desc": "搜「城市+搭子」找同城约玩", "link": "https://www.xiaohongshu.com/", "type": "app"},
-        {"name": "豆瓣小组", "desc": "搜「城市+约玩/组局」小组", "link": "https://www.douban.com/", "type": "web"},
-    ]
+    "soul": {
+        "name": "Soul App",
+        "desc": "年轻人社交元宇宙，兴趣匹配找同好",
+        "url": "https://www.soulapp.cn/",
+        "type": "App",
+    },
+    "tantan": {
+        "name": "探探",
+        "desc": "左滑右滑，匹配附近的人",
+        "url": "https://www.tantanapp.com/",
+        "type": "App",
+    },
+    "qq_group": {
+        "name": "QQ群",
+        "desc": "搜索'城市+兴趣'找同城群组，如'北京桌游群'",
+        "url": "https://qun.qq.com/",
+        "type": "Web/App",
+    },
+    "discord": {
+        "name": "Discord",
+        "desc": "游戏/兴趣社区，搜索中文服务器加入",
+        "url": "https://discord.com/",
+        "type": "App",
+    },
+    "xiaohongshu": {
+        "name": "小红书",
+        "desc": "搜'找搭子'看同城帖子",
+        "url": "https://www.xiaohongshu.com/",
+        "type": "App",
+    },
 }
 
 
+def _get_client():
+    ctx = request_context.get() or new_context(method="partner_match")
+    return get_supabase_client()
+
+
 @tool
-def get_social_platforms(category: str = "") -> str:
-    """获取真实交友/社交平台链接，供用户跳转到真人聚集的平台找搭子。
-    支持分类：交友匹配、游戏组队、音乐同好、本地组局。不传category返回全部。
+def find_partners(city: str, activity: str = "", min_partners: int = 1) -> str:
+    """查找同城搭子，返回可匹配的用户列表。
+
+    Args:
+        city: 城市名称，如 '北京'、'上海'
+        activity: 想做的活动类型，如 '吃饭/探店'、'打游戏'。空字符串则查所有类型
+        min_partners: 最少返回人数，默认1
+
+    Returns:
+        匹配结果描述，包含匹配到的搭子信息和城市热度
     """
-    ctx = request_context.get() or new_context(method="get_social_platforms")
+    try:
+        client = _get_client()
 
-    if category and category in SOCIAL_PLATFORMS:
-        platforms = {category: SOCIAL_PLATFORMS[category]}
-    else:
-        platforms = SOCIAL_PLATFORMS
+        # 先查城市热度数据（聚合统计）
+        stats_response = client.table("partner_profiles") \
+            .select("activity", count="exact") \
+            .eq("city", city) \
+            .execute()
+        city_count = stats_response.count if stats_response else 0
 
-    result = "📱 真人聚集的社交平台（不是AI虚构的）：\n\n"
-    for cat_name, items in platforms.items():
-        result += f"【{cat_name}】\n"
-        for item in items:
-            result += f"  • {item['name']}：{item['desc']}\n"
-            if 'group_id' in item:
-                result += f"    QQ群号：{item['group_id']}（复制群号到QQ搜索加入）\n"
-            result += f"    链接：{item['link']}\n\n"
-    return result
+        # 按活动统计
+        activity_stats = {}
+        if city_count > 0:
+            all_response = client.table("partner_profiles") \
+                .select("activity") \
+                .eq("city", city) \
+                .execute()
+            if all_response and all_response.data:
+                for r in all_response.data:
+                    rd = dict(r)
+                    act = rd.get("activity", "其他") or "其他"
+                    activity_stats[act] = activity_stats.get(act, 0) + 1
+            top_activities = sorted(activity_stats.items(), key=lambda x: -x[1])[:5]
+        else:
+            top_activities = []
+
+        # 然后查具体匹配
+        query = client.table("partner_profiles") \
+            .select("*") \
+            .eq("city", city)
+
+        if activity:
+            query = query.eq("activity", activity)
+
+        # 限制返回数量
+        response = query.limit(20).execute()
+
+        partners_raw = response.data if response and response.data else []
+        partners = [dict(p) for p in partners_raw]
+
+        if activity:
+            matched = [p for p in partners if p.get("activity", "") == activity]
+            other = [p for p in partners if p.get("activity", "") != activity]
+        else:
+            matched = partners
+            other = []
+
+        # 构建回复
+        lines = []
+
+        # === 搭子广场（冷启动友好）===
+        if city_count > 0:
+            lines.append(f"📊 【{city}搭子广场】")
+            lines.append(f"   当前 {city} 共有 {city_count} 位小伙伴在找搭子！")
+            if top_activities:
+                acts_str = " | ".join([f"{a}({c}人)" for a, c in top_activities])
+                lines.append(f"   热门活动：{acts_str}")
+        else:
+            lines.append(f"📊 【{city}搭子广场】")
+            lines.append(f"   {city} 目前还没有人发布搭子信息，快来当第一个吧！")
+            lines.append(f"   用「发布搭子信息」功能，写上你的城市和想做的事~")
+        lines.append("")
+
+        # === 匹配结果 ===
+        if activity:
+            lines.append(f"🎯 你找的是「{activity}」搭子：")
+            if matched:
+                for p in matched[:min_partners]:
+                    pt = p.get("tags", "") or ""
+                    tags = f" | 标签: {pt}" if pt else ""
+                    pc = p.get("contact", "") or ""
+                    contact = f" | 📞 {pc}" if pc else ""
+                    pb = p.get("bio", "") or ""
+                    bio = f"\n      👤 {pb}" if pb else ""
+                    lines.append(f"   👋 {p.get('nickname', '匿名')}{tags}{contact}{bio}")
+            else:
+                lines.append(f"   暂时没有找到「{activity}」搭子，换个活动试试？")
+
+            if other:
+                lines.append(f"\n   同城其他活动推荐：")
+                for p in other[:3]:
+                    lines.append(f"   · {p.get('nickname', '匿名')} 在找「{p.get('activity', '未知')}」")
+
+        # === 外部平台引流 ===
+        lines.extend([
+            "",
+            "🔗 【自己动手找搭子】",
+            "   如果暂时没匹配到，也可以去这些平台看看：",
+        ])
+        for key, platform in SOCIAL_PLATFORMS.items():
+            lines.append(f"   · {platform['name']}：{platform['desc']}")
+
+        lines.append("")
+        lines.append("💡 发布你的搭子信息，可以让更多人找到你！用「发布搭子信息」功能~")
+
+        return "\n".join(lines)
+
+    except APIError as e:
+        return f"❌ 查询失败: {e.message}"
+    except Exception as e:
+        return f"❌ 查询异常: {str(e)}"
 
 
 @tool
-def get_safety_tips(scenario: str = "") -> str:
-    """返回安全约见提醒。当用户提到去私密场所、深夜见面、第一次见搭子时调用。"""
-    ctx = request_context.get() or new_context(method="get_safety_tips")
+def add_partner(
+    city: str,
+    activity: str,
+    nickname: str,
+    tags: str = "",
+    contact: str = "",
+    bio: str = "",
+) -> str:
+    """发布自己的搭子信息，让别人能找到你。
 
-    base_tips = (
-        "🌱 **安全小贴士**：\n"
-        "1. 第一次见面请选**公共场所**（商场、奶茶店、KFC、电影院）\n"
-        "2. 告知一个信任的朋友你的行踪和对方的联系方式\n"
-        "3. 如果对方让你感到任何不适，**随时可以离开，不需要理由**\n"
-        "4. 随身带好手机并保证电量充足\n"
-        "5. 相信你的直觉——如果哪里不对劲，立刻走"
-    )
+    Args:
+        city: 所在城市，如 '北京'
+        activity: 想做的活动，如 '吃饭/探店'、'打游戏'、'运动健身'
+        nickname: 你的昵称
+        tags: 标签，逗号分隔，如 'E人,90后,周末有空'
+        contact: 联系方式（可选），如微信号、QQ号
+        bio: 个人介绍（可选），简单介绍一下自己
 
-    if "家里" in scenario or "私密" in scenario or "深夜" in scenario or "偏僻" in scenario:
-        base_tips += (
-            "\n\n⚠️ **特别提醒**：你提到的地点/时间可能不太安全。"
-            "建议改到白天、人多的地方。如果一定要去，请务必告诉一个信任的朋友你的行踪。"
-        )
-
-    return base_tips
-
-
-@tool
-def add_partner(name: str, city: str, activities: str, contact: str = "", intro: str = "", available_time: str = "") -> str:
-    """用户自己发布搭子信息，存入本地搭子池。注意：只存用户真实提交的数据，不生成任何虚构内容。
-    contact是用户愿意留下的联系方式（微信号/QQ号/手机号等），可选。
+    Returns:
+        发布结果
     """
-    ctx = request_context.get() or new_context(method="add_partner")
-    data = _load_partners()
-    entry = {
-        "name": name,
-        "city": city,
-        "activities": activities,
-        "intro": intro,
-        "available_time": available_time or "待定",
-    }
-    if contact:
-        entry["contact"] = contact
-    data["partners"].append(entry)
-    _save_partners(data)
-    msg = f"✅ 发布成功！{name}，你已经在 {city} 的搭子池里啦~\n📋 想做的事：{activities}\n💬 介绍：{intro}\n"
-    if contact:
-        msg += f"📞 联系方式已保存，匹配到的人可以直接联系你\n"
-    msg += "\n⚠️ 提醒：第一次约见面请选公共场所，注意安全！"
-    return msg
+    if not city or not activity or not nickname:
+        return "❌ 城市、活动和昵称都是必填的哦~"
+
+    # 校验活动是否在推荐列表中
+    if activity not in HOT_ACTIVITIES:
+        hint = "、".join(HOT_ACTIVITIES)
+        return f"❌ 目前支持的活动类型：{hint}，请从中选择一个~"
+
+    try:
+        client = _get_client()
+        record = {
+            "user_id": request_context.get().user_id if request_context.get() else nickname,
+            "nickname": nickname,
+            "city": city,
+            "activity": activity,
+            "tags": tags[:256] if tags else None,
+            "contact": contact[:256] if contact else None,
+            "bio": bio[:512] if bio else None,
+        }
+
+        response = client.table("partner_profiles").insert(record).execute()
+
+        if response and response.data:
+            # 获取当前城市热度
+            count_resp = client.table("partner_profiles") \
+                .select("id", count="exact") \
+                .eq("city", city) \
+                .execute()
+            city_count = count_resp.count if count_resp else 1
+
+            return (
+                f"✅ 发布成功！{nickname} 已加入 {city}「{activity}」搭子圈 🎉\n\n"
+                f"📊 当前 {city} 共有 {city_count} 位小伙伴在找搭子\n"
+                f"💡 有人找你时我会通知你！想找搭子直接用「找搭子」功能~"
+            )
+        return "❌ 发布失败，请重试"
+
+    except APIError as e:
+        return f"❌ 发布失败: {e.message}"
+    except Exception as e:
+        return f"❌ 发布异常: {str(e)}"
 
 
 @tool
-def find_partners(city: str, activity: str = "") -> str:
-    """从搭子池里搜真实用户发布的搭子信息。只返回用户自己填写的真实数据，不虚构。
-    如果没有匹配到，引导用户去真实社交平台找。
+def get_partner_square(city: str = "") -> str:
+    """查看搭子广场 - 看看全国/同城的热门活动和人流热度。
+
+    Args:
+        city: 城市名称（可选），不传则看全国数据
+
+    Returns:
+        搭子广场的热度数据
     """
-    ctx = request_context.get() or new_context(method="find_partners")
-    data = _load_partners()
-    partners = data.get("partners", [])
+    try:
+        client = _get_client()
 
-    matched = []
-    for p in partners:
-        if p["city"] == city:
-            if not activity or any(a.strip() in p["activities"] for a in activity.split("、") if a.strip()):
-                matched.append(p)
+        if city:
+            query = client.table("partner_profiles") \
+                .select("activity, city", count="exact") \
+                .eq("city", city)
+        else:
+            query = client.table("partner_profiles") \
+                .select("activity, city", count="exact")
 
-    if matched:
-        result = f"🎉 在 {city} 找到 {len(matched)} 位真实搭子（用户自己发布的）：\n\n"
-        for i, p in enumerate(matched, 1):
-            result += f"{i}. **{p['name']}**\n"
-            result += f"   💬 {p.get('intro', '')}\n"
-            result += f"   🕐 {p.get('available_time', '待定')}\n"
-            result += f"   🎯 {p['activities']}\n"
-            if p.get("contact"):
-                result += f"   📞 联系方式：{p['contact']}\n"
-            result += "\n"
-        result += "🌱 第一次见面建议选在公共场所，注意安全！"
-        return result
+        response = query.execute()
+        total_count = response.count if response else 0
 
-    # 没有匹配到真实数据 → 引导去真人平台
-    return (
-        f"😅 抱歉，{city} 暂时还没人发布这个活动的搭子信息。\n\n"
-        f"不过别急！真人都在这些平台玩，你去这里找肯定能找到：\n\n"
-        f"【交友匹配】\n"
-        f"  • Soul（兴趣匹配，不看脸）→ soulapp.cn\n"
-        f"  • 探探（同城速配）→ tantanapp.com\n\n"
-        f"【游戏组队】\n"
-        f"  • 王者荣耀QQ开黑群：929436631（复制群号到QQ加群）\n"
-        f"  • Discord 游戏社区：discord.com\n\n"
-        f"【本地组局】\n"
-        f"  • 小红书搜「{city}搭子」\n"
-        f"  • 豆瓣搜「{city}约玩」小组\n\n"
-        f"要不你先去这些地方逛逛？或者你先发布自己的信息也行，我帮你存着，"
-        f"别人搜的时候就能找到你了！"
-    )
+        if total_count == 0:
+            prefix = f" {city}" if city else "全国"
+            return (
+                f"📊【{prefix}搭子广场】\n"
+                f"   目前还没有人发布搭子信息 🏜️\n\n"
+                f"💡 用「发布搭子信息」成为第一个吃螃蟹的人吧！"
+            )
+
+        # 获取所有记录做统计
+        all_query = client.table("partner_profiles").select("activity, city")
+        if city:
+            all_query = all_query.eq("city", city)
+        all_resp = all_query.execute()
+
+        # 统计
+        activity_count = {}
+        city_count = {}
+        if all_resp and all_resp.data:
+            for r in all_resp.data:
+                rd = dict(r)
+                act = rd.get("activity", "其他") or "其他"
+                activity_count[act] = activity_count.get(act, 0) + 1
+                c = rd.get("city", "未知") or "未知"
+                city_count[c] = city_count.get(c, 0) + 1
+
+        lines = []
+        prefix = f" {city}" if city else "全国"
+        lines.append(f"📊【{prefix}搭子广场】")
+        lines.append(f"   共 {total_count} 位小伙伴在找搭子")
+        lines.append("")
+
+        if activity_count:
+            lines.append("🏷️ 热门活动 TOP5：")
+            top_acts = sorted(activity_count.items(), key=lambda x: -x[1])[:5]
+            for i, (act, cnt) in enumerate(top_acts, 1):
+                bar = "█" * min(cnt, 10) + "░" * max(0, 10 - min(cnt, 10))
+                lines.append(f"   {i}. {act}: {bar} {cnt}人")
+
+        if not city and city_count:
+            lines.append("")
+            lines.append("🏙️ 热门城市：")
+            top_cities = sorted(city_count.items(), key=lambda x: -x[1])[:8]
+            city_strs = [f"{c}({n}人)" for c, n in top_cities]
+            lines.append("   " + " | ".join(city_strs))
+
+        return "\n".join(lines)
+
+    except APIError as e:
+        return f"❌ 查询失败: {e.message}"
+    except Exception as e:
+        return f"❌ 查询异常: {str(e)}"
+
+
+@tool
+def get_social_platforms() -> str:
+    """获取外部社交平台推荐，可以去这些平台自己找搭子。
+
+    Returns:
+        平台列表和推荐说明
+    """
+    lines = [
+        "🔗 【搭子社交平台推荐】",
+        "   如果暂时没匹配到合适的，可以自己去这些平台找找看：",
+        "",
+    ]
+    for key, platform in SOCIAL_PLATFORMS.items():
+        lines.append(f"   · {platform['name']}")
+        lines.append(f"     {platform['desc']}")
+        lines.append(f"     🔗 {platform['url']}")
+        lines.append("")
+
+    lines.append("💡 找搭子小技巧：")
+    lines.append("   · Soul：用「狼人杀」「游戏」标签更容易找到同好")
+    lines.append('   · 小红书：搜「城市+找搭子」如"北京 饭搭子"')
+    lines.append("   · QQ群：搜「城市+兴趣爱好」，比如「北京桌游群」")
+    lines.append("   · 注意安全！第一次见面选公共场所，告诉朋友行踪")
+
+    return "\n".join(lines)
+
+
+@tool
+def get_safety_tips() -> str:
+    """获取线下见面安全建议，保障搭子见面安全。
+
+    Returns:
+        安全建议列表
+    """
+    tips = [
+        "🛡️ 【搭子见面安全指南】",
+        "",
+        "1️⃣ 第一次见面选公共场所",
+        "   咖啡馆、商场、公园等，不要去对方家里",
+        "",
+        "2️⃣ 告诉朋友",
+        "   出发前把时间地点告诉一个朋友，结束后报平安",
+        "",
+        "3️⃣ 保持通讯",
+        "   手机充满电，和朋友保持联系",
+        "",
+        "4️⃣ 信任直觉",
+        "   感觉不对就走，不需要理由",
+        "",
+        "5️⃣ 白天见面优先",
+        "   尽量约白天，晚上约人多的地方",
+        "",
+        "6️⃣ 不急着透露太多个人信息",
+        "   住址、工作地点这些，熟一点再说",
+        "",
+        "7️⃣ 女生可以带个朋友一起",
+        "   第一次见面叫上闺蜜/兄弟也不奇怪",
+    ]
+    return "\n".join(tips)

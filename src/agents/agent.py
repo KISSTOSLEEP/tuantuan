@@ -16,18 +16,23 @@ from coze_coding_utils.runtime_ctx.context import default_headers
 from storage.memory.memory_saver import get_memory_saver
 
 # 导入工具
-from tools.music_tool import music_recommend
+from tools.music_tool import music_recommend, search_song_url
 from tools.emergency_contact_tool import (
     save_emergency_contact,
-    get_emergency_contacts,
+    get_emergency_contact,
+    delete_emergency_contact,
 )
 from tools.daily_checkin_tool import daily_checkin, get_checkin_summary
 from tools.anchor_plan_tool import get_anchor_plan, get_anchor_tip
 from tools.quick_command_tool import quick_command
-from tools.partner_match_tool import find_partners, add_partner, get_safety_tips
+from tools.partner_match_tool import (
+    find_partners, add_partner, get_safety_tips,
+    get_partner_square, get_social_platforms,
+)
 from tools.link_generator_tool import generate_game_link, generate_music_link, generate_meetup_guide, generate_voice_chat_link
-from tools.mood_chart_tool import generate_mood_chart
+from tools.mood_chart_tool import generate_mood_trend_chart, generate_mood_calendar, get_achievement_summary
 from tools.voice_companion_tool import voice_companion
+from tools.notification_service import register_push_schedule, list_my_schedules, cancel_push_schedule
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -81,11 +86,13 @@ def build_agent(ctx=None):
         default_headers=default_headers(ctx) if ctx else {},
     )
 
-    # 注册所有可用工具
+    # 注册所有可用工具（17个旧工具 + 8个新增 = 25个工具）
     tools = [
         music_recommend,
+        search_song_url,
         save_emergency_contact,
-        get_emergency_contacts,
+        get_emergency_contact,
+        delete_emergency_contact,
         daily_checkin,
         get_checkin_summary,
         get_anchor_plan,
@@ -94,12 +101,19 @@ def build_agent(ctx=None):
         find_partners,
         add_partner,
         get_safety_tips,
+        get_partner_square,
+        get_social_platforms,
         generate_game_link,
         generate_music_link,
         generate_meetup_guide,
         generate_voice_chat_link,
-        generate_mood_chart,
+        generate_mood_trend_chart,
+        generate_mood_calendar,
+        get_achievement_summary,
         voice_companion,
+        register_push_schedule,
+        list_my_schedules,
+        cancel_push_schedule,
     ]
 
     return create_agent(

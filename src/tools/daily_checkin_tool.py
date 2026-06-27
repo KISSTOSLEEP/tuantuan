@@ -1,241 +1,239 @@
-"""
-日常打卡工具 —— 记录吃动睡等基础生活数据
-"""
-import os
+"""日常打卡工具 - 使用 Supabase 存储"""
+
 import json
-from datetime import date, datetime
-from typing import Optional
+import logging
+import os
+from datetime import datetime
+from typing import Any, Optional
+
 from langchain.tools import tool
+from postgrest.exceptions import APIError
 
-# 打卡数据文件路径
-CHECKIN_FILE = os.path.join(
-    os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"),
-    "assets/checkin_data.json"
-)
+from coze_coding_utils.log.write_log import request_context
+from coze_coding_utils.runtime_ctx.context import new_context
+from storage.database.supabase_client import get_supabase_client
 
-
-def _load_checkin_data() -> dict:
-    """加载打卡数据"""
-    try:
-        if os.path.exists(CHECKIN_FILE):
-            with open(CHECKIN_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        pass
-    return {"records": []}
+logger = logging.getLogger(__name__)
 
 
-def _save_checkin_data(data: dict):
-    """保存打卡数据"""
-    with open(CHECKIN_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def _get_client():
+    ctx = request_context.get() or new_context(method="daily_checkin")
+    return get_supabase_client()
+
+
+def _get_user_id() -> str:
+    ctx = request_context.get()
+    return ctx.user_id if ctx else "anonymous"
 
 
 @tool
 def daily_checkin(
-    mood_score: Optional[int] = None,
-    ate_meals: Optional[str] = "",
-    water_cups: Optional[int] = 0,
-    exercise_type: Optional[str] = "",
-    exercise_minutes: Optional[int] = 0,
-    sleep_hours: Optional[float] = 0.0,
-    sleep_quality: Optional[int] = 0,
-    note: Optional[str] = ""
+    eat_score: Optional[float] = None,
+    move_score: Optional[float] = None,
+    sleep_score: Optional[float] = None,
+    mood_score: Optional[float] = None,
+    notes: str = "",
 ) -> str:
-    """记录每日吃动睡打卡数据。
-    
-    当用户想记录今天的生活状态时调用。
-    所有参数都是可选的，用户可以只填写想记录的部分。
+    """记录今天的饮食、运动、睡眠和心情打卡。
 
     Args:
-        mood_score: 心情评分（1-10分）
-        ate_meals: 吃了什么，描述三餐情况
-        water_cups: 喝了几杯水
-        exercise_type: 运动类型（如散步、跑步、瑜伽等）
-        exercise_minutes: 运动时长（分钟）
-        sleep_hours: 睡眠时长（小时）
-        sleep_quality: 睡眠质量评分（1-10分）
-        note: 今天想对自己说的话
+        eat_score: 饮食评分，0-10分（可选）
+        move_score: 运动评分，0-10分（可选）
+        sleep_score: 睡眠评分，0-10分（可选）
+        mood_score: 心情评分，0-10分（可选）
+        notes: 备注/想说的话（可选）
 
     Returns:
-        打卡记录确认和鼓励
+        打卡结果反馈
     """
-    today = date.today().isoformat()
-    now = datetime.now().strftime("%H:%M")
-    
-    data = _load_checkin_data()
-    
-    # 检查今天是否已经打过卡
-    existing = None
-    for r in data["records"]:
-        if r["date"] == today:
-            existing = r
-            break
-    
-    if existing:
-        # 更新已有记录
-        if mood_score is not None:
-            existing["mood_score"] = mood_score
-        if ate_meals:
-            existing["ate_meals"] = ate_meals
-        if water_cups:
-            existing["water_cups"] = water_cups
-        if exercise_type:
-            existing["exercise_type"] = exercise_type
-        if exercise_minutes:
-            existing["exercise_minutes"] = exercise_minutes
-        if sleep_hours:
-            existing["sleep_hours"] = sleep_hours
-        if sleep_quality:
-            existing["sleep_quality"] = sleep_quality
-        if note:
-            existing["note"] = note
-        existing["updated_at"] = now
-    else:
-        # 新增记录
+    today = datetime.now().strftime("%Y-%m-%d")
+    user_id = _get_user_id()
+
+    try:
+        client = _get_client()
+
+        # 检查今天是否已打卡
+        existing = client.table("checkin_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .eq("checkin_date", today) \
+            .maybe_single() \
+            .execute()
+
         record = {
-            "date": today,
-            "mood_score": mood_score,
-            "ate_meals": ate_meals,
-            "water_cups": water_cups,
-            "exercise_type": exercise_type,
-            "exercise_minutes": exercise_minutes,
-            "sleep_hours": sleep_hours,
-            "sleep_quality": sleep_quality,
-            "note": note,
-            "created_at": now,
-            "updated_at": now
+            "user_id": user_id,
+            "checkin_date": today,
+            "notes": notes[:512] if notes else None,
         }
-        data["records"].append(record)
-    
-    _save_checkin_data(data)
-    
-    # 生成反馈
-    lines = [f"📝 {today} 打卡记录："]
+        if eat_score is not None:
+            record["eat_score"] = max(0, min(10, eat_score))
+        if move_score is not None:
+            record["move_score"] = max(0, min(10, move_score))
+        if sleep_score is not None:
+            record["sleep_score"] = max(0, min(10, sleep_score))
+        if mood_score is not None:
+            record["mood_score"] = max(0, min(10, mood_score))
 
-    if mood_score is not None:
-        emoji = "😊" if mood_score >= 7 else "🙂" if mood_score >= 5 else "😔"
-        lines.append(f"💭 心情：{mood_score}/10 {emoji}")
-    
-    if ate_meals:
-        lines.append(f"🍚 吃了：{ate_meals}")
-    
-    if water_cups:
-        cups_emoji = "💧" * min(water_cups, 6)
-        lines.append(f"🚰 喝水：{water_cups}杯 {cups_emoji}")
-    
-    if exercise_type and exercise_minutes:
-        lines.append(f"🏃 运动：{exercise_type} {exercise_minutes}分钟")
-    elif exercise_type:
-        lines.append(f"🏃 运动：{exercise_type}")
-    
-    if sleep_hours:
-        lines.append(f"😴 睡眠：{sleep_hours}小时 {'💤' * min(int(sleep_hours // 2), 4)}")
-    
-    if sleep_quality:
-        q_emoji = "🌟" if sleep_quality >= 7 else "🌙" if sleep_quality >= 4 else "🌧"
-        lines.append(f"⭐ 睡眠质量：{sleep_quality}/10 {q_emoji}")
-    
-    if note:
-        lines.append(f"\n💬 {note}")
-    
-    lines.append("\n👏 今天也有好好记录生活，真棒~")
-    
-    # 计算连续打卡天数
-    streak = _calc_streak(data["records"])
-    if streak > 1:
-        lines.append(f"🔥 已连续打卡 {streak} 天！")
-    
-    return "\n".join(lines)
-
-
-def _calc_streak(records: list) -> int:
-    """计算连续打卡天数"""
-    if not records:
-        return 0
-    
-    sorted_records = sorted(records, key=lambda r: r["date"], reverse=True)
-    
-    from datetime import timedelta
-    streak = 0
-    check_date = date.today()
-    
-    for record in sorted_records:
-        record_date = date.fromisoformat(record["date"])
-        if record_date == check_date:
-            streak += 1
-            check_date -= timedelta(days=1)
-        elif record_date == check_date:
-            # 有中断
-            break
+        if existing and existing.data:
+            # 更新现有记录
+            update_data = {}
+            for k, v in record.items():
+                if k not in ("user_id", "checkin_date"):
+                    update_data[k] = v
+            if update_data and isinstance(existing.data, dict):
+                _id = existing.data["id"]
+                client.table("checkin_records") \
+                    .update(update_data) \
+                    .eq("id", _id) \
+                    .execute()
+            action = "更新"
         else:
-            break
-    
-    return streak
+            # 新增记录
+            client.table("checkin_records").insert(record).execute()
+            action = "记录"
+
+        # 组装反馈
+        parts = [f"✅ {action}成功！{today}"]
+        scores = []
+        if eat_score is not None:
+            scores.append(f"🍜 饮食: {eat_score}/10")
+        if move_score is not None:
+            scores.append(f"🏃 运动: {move_score}/10")
+        if sleep_score is not None:
+            scores.append(f"😴 睡眠: {sleep_score}/10")
+        if mood_score is not None:
+            scores.append(f"💖 心情: {mood_score}/10")
+
+        if scores:
+            parts.append(" | ".join(scores))
+        if notes:
+            parts.append(f"\n📝 {notes}")
+        if eat_score is not None and move_score is not None and sleep_score is not None:
+            total = (eat_score + move_score + sleep_score) / 3
+            if total >= 8:
+                parts.append(f"\n🌟 今天状态不错嘛！总分 {total:.1f}/10，继续保持！")
+            elif total >= 5:
+                parts.append(f"\n👍 总分 {total:.1f}/10，还行还行，明天可以更好~")
+            else:
+                parts.append(f"\n🤗 总分 {total:.1f}/10，今天辛苦了，好好休息~")
+
+        return "\n".join(parts)
+
+    except APIError as e:
+        return f"❌ 打卡失败: {e.message}"
+    except Exception as e:
+        return f"❌ 打卡异常: {str(e)}"
 
 
 @tool
 def get_checkin_summary(days: int = 7) -> str:
-    """查询最近的打卡汇总。
-    
-    当用户想回顾近期的生活记录时调用。
+    """查看最近几天的打卡汇总。
 
     Args:
-        days: 查询最近几天的数据，默认7天
+        days: 查看最近几天的记录，默认7天，最多30天
 
     Returns:
         打卡汇总报告
     """
-    data = _load_checkin_data()
-    
-    if not data["records"]:
-        return "📭 还没有打卡记录呢~\n要不要从今天开始记录呀？"
-    
-    from datetime import timedelta
-    today = date.today()
-    start_date = today - timedelta(days=days)
-    
-    recent = [
-        r for r in data["records"]
-        if date.fromisoformat(r["date"]) >= start_date
-    ]
-    
-    if not recent:
-        return f"📭 最近{days}天还没有打卡记录~"
-    
-    sorted_records = sorted(recent, key=lambda r: r["date"], reverse=True)
-    
-    lines = [f"📊 最近{len(sorted_records)}天的打卡汇总：\n"]
-    
-    # 计算平均值
-    mood_scores = [r["mood_score"] for r in sorted_records if r.get("mood_score")]
-    sleep_qualities = [r["sleep_quality"] for r in sorted_records if r.get("sleep_quality")]
-    sleep_hours_list = [r["sleep_hours"] for r in sorted_records if r.get("sleep_hours")]
-    exercise_days = [r for r in sorted_records if r.get("exercise_type")]
-    ate_days = [r for r in sorted_records if r.get("ate_meals")]
-    
-    if mood_scores:
-        avg_mood = sum(mood_scores) / len(mood_scores)
-        lines.append(f"💭 平均心情：{avg_mood:.1f}/10")
-    
-    if sleep_hours_list:
-        avg_sleep = sum(sleep_hours_list) / len(sleep_hours_list)
-        lines.append(f"😴 平均睡眠：{avg_sleep:.1f}小时")
-    
-    if sleep_qualities:
-        avg_sq = sum(sleep_qualities) / len(sleep_qualities)
-        lines.append(f"⭐ 平均睡眠质量：{avg_sq:.1f}/10")
-    
-    lines.append(f"🏃 运动天数：{len(exercise_days)}/{len(sorted_records)}")
-    lines.append(f"🍚 规律吃饭：{len(ate_days)}/{len(sorted_records)}")
-    
-    # 趋势
-    if len(mood_scores) >= 3:
-        recent3 = mood_scores[:3]
-        older3 = mood_scores[-3:]
-        if sum(recent3) > sum(older3):
-            lines.append("\n📈 心情有变好的趋势呢，继续加油~ 🌟")
-        elif sum(recent3) < sum(older3):
-            lines.append("\n📉 最近心情有点下滑，需要我陪你聊聊吗？🧡")
-    
-    return "\n".join(lines)
+    user_id = _get_user_id()
+    days = min(30, max(1, days))
+
+    try:
+        client = _get_client()
+
+        response = client.table("checkin_records") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("checkin_date", desc=True) \
+            .limit(days) \
+            .execute()
+
+        records = response.data if response and response.data else []
+
+        if not records:
+            return "📭 最近没有打卡记录哦，用 daily_checkin 开始记录吧~"
+
+        lines = [f"📊 最近 {days} 天打卡汇总"]
+        lines.append("")
+
+        total_eat = total_move = total_sleep = total_mood = 0
+        count_eat = count_move = count_sleep = count_mood = 0
+
+        for r in records:
+            rd = dict(r)
+            date_str = str(rd.get("checkin_date", ""))
+            parts = [f"  {date_str}"]
+            es_raw = rd.get("eat_score")
+            try:
+                es = float(es_raw) if es_raw is not None else None
+            except (TypeError, ValueError):
+                es = None
+            if es is not None:
+                parts.append(f"🍜{es:.0f}")
+                total_eat += es
+                count_eat += 1
+            ms_raw = rd.get("move_score")
+            try:
+                ms = float(ms_raw) if ms_raw is not None else None
+            except (TypeError, ValueError):
+                ms = None
+            if ms is not None:
+                parts.append(f"🏃{ms:.0f}")
+                total_move += ms
+                count_move += 1
+            ss_raw = rd.get("sleep_score")
+            try:
+                ss = float(ss_raw) if ss_raw is not None else None
+            except (TypeError, ValueError):
+                ss = None
+            if ss is not None:
+                parts.append(f"😴{ss:.0f}")
+                total_sleep += ss
+                count_sleep += 1
+            md_raw = rd.get("mood_score")
+            try:
+                md = float(md_raw) if md_raw is not None else None
+            except (TypeError, ValueError):
+                md = None
+            if md is not None:
+                parts.append(f"💖{md:.0f}")
+                total_mood += md
+                count_mood += 1
+            nt = rd.get("notes")
+            if nt:
+                parts.append(f" | {str(nt)[:30]}")
+            lines.append(" ".join(parts))
+
+        lines.append("")
+        lines.append("📈 【平均分】")
+        if count_eat > 0:
+            lines.append(f"   饮食: {total_eat / count_eat:.1f}/10 ({count_eat}天)")
+        if count_move > 0:
+            lines.append(f"   运动: {total_move / count_move:.1f}/10 ({count_move}天)")
+        if count_sleep > 0:
+            lines.append(f"   睡眠: {total_sleep / count_sleep:.1f}/10 ({count_sleep}天)")
+        if count_mood > 0:
+            lines.append(f"   心情: {total_mood / count_mood:.1f}/10 ({count_mood}天)")
+
+        # 趋势
+        if len(records) >= 3:
+            recent_3 = records[:3]
+            mood_vals = []
+            for r_item in recent_3:
+                r_item_d = dict(r_item)
+                mv = r_item_d.get("mood_score")
+                if mv is not None:
+                    mood_vals.append(float(mv))
+                else:
+                    mood_vals.append(0.0)
+            if len(mood_vals) >= 2 and mood_vals[0] > mood_vals[-1] and abs(mood_vals[0] - mood_vals[-1]) > 1:
+                lines.append(f"\n📈 心情趋势：上升中 👍")
+            elif len(mood_vals) >= 2 and mood_vals[0] < mood_vals[-1] and abs(mood_vals[0] - mood_vals[-1]) > 1:
+                lines.append(f"\n📉 心情趋势：有点下滑，需要聊聊吗？")
+
+        return "\n".join(lines)
+
+    except APIError as e:
+        return f"❌ 查询失败: {e.message}"
+    except Exception as e:
+        return f"❌ 查询异常: {str(e)}"
