@@ -388,6 +388,36 @@ html, body {
   </div>
 </div>
 
+<!-- 高危预警横幅 -->
+<div id="crisis-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9998;background:linear-gradient(135deg,#d4869c,#c0392b);padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0px));animation:slideDown 0.4s ease;">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="font-size:20px;">🆘</span>
+    <div style="flex:1;">
+      <div style="color:#fff;font-size:14px;font-weight:600;">需要帮助吗？</div>
+      <div style="color:rgba(255,255,255,0.9);font-size:12px;margin-top:2px;">全国24小时心理援助热线：<strong style="font-size:14px;">010-82951332</strong></div>
+    </div>
+    <button onclick="document.getElementById('crisis-banner').style.display='none'" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:28px;height:28px;font-size:14px;cursor:pointer;">✕</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:6px;">
+    <a href="tel:010-82951332" style="flex:1;padding:6px;background:#fff;color:#d4869c;border-radius:6px;text-align:center;font-size:12px;font-weight:600;text-decoration:none;">📞 立即拨打</a>
+    <button onclick="document.getElementById('crisis-banner').style.display='none'" style="flex:1;padding:6px;background:rgba(255,255,255,0.15);color:#fff;border-radius:6px;text-align:center;font-size:12px;border:none;cursor:pointer;">我知道了 🫂</button>
+  </div>
+</div>
+
+<!-- 隐私同意弹窗 -->
+<div id="privacy-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;max-width:340px;width:90%;padding:24px;margin:20px;box-shadow:0 8px 40px rgba(0,0,0,0.15);animation:slideUp 0.3s ease;">
+    <div style="text-align:center;font-size:36px;margin-bottom:12px;">🛡️</div>
+    <div style="font-size:16px;font-weight:600;text-align:center;color:#3d3229;margin-bottom:6px;">欢迎来到情绪出口</div>
+    <div style="font-size:12px;color:#b8a89a;text-align:center;margin-bottom:14px;">团团会记录聊天内容和心情，帮你追踪情绪变化</div>
+    <div style="font-size:11px;color:#999;line-height:1.6;margin-bottom:16px;padding:10px;background:#faf6f2;border-radius:8px;">
+      你的数据仅用于AI陪伴和情绪分析，不会被分享给第三方。<br>
+      可随时在 <a href="/privacy" style="color:#6b8e6b;">隐私协议</a> 中查看详情或删除所有数据。
+    </div>
+    <button onclick="acceptPrivacy()" style="width:100%;padding:12px;border:none;border-radius:10px;background:#6b8e6b;color:#fff;font-size:14px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">我知道了，开始使用 🐼</button>
+  </div>
+</div>
+
 <div class="settings-overlay" id="settings-overlay" onclick="closeSettings(event)">
   <div class="settings-modal" onclick="event.stopPropagation()">
     <div class="settings-header"><span>🎨 个性化设置</span><button onclick="closeSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button></div>
@@ -895,6 +925,19 @@ function toggleMission(idx) {
   });
 }
 
+
+// --- 隐私同意 ---
+function acceptPrivacy() {
+  document.getElementById('privacy-overlay').style.display = 'none';
+  safeSet('eos_privacy_accepted', 'yes');
+}
+// 首次访问弹出隐私协议
+document.addEventListener('DOMContentLoaded', function() {
+  if (!safeGet('eos_privacy_accepted', '')) {
+    document.getElementById('privacy-overlay').style.display = 'flex';
+  }
+});
+
 // --- 自动加载 ---
 setTimeout(loadDashboard, 1000);
 setTimeout(loadFlame, 1500);
@@ -1225,6 +1268,9 @@ async def manifest():
         "background_color": "#faf6f2",
         "theme_color": "#6b8e6b",
         "orientation": "portrait",
+        "categories": ["health", "mental-health", "lifestyle"],
+        "prefer_related_applications": False,
+        "screenshots": [],
         "icons": [
             {"src": "/panda_icon.png", "sizes": "192x192", "type": "image/png"},
             {"src": "/panda_icon.png", "sizes": "512x512", "type": "image/png"}
@@ -1532,6 +1578,9 @@ async def chat_api(request: Request) -> Dict[str, Any]:
             pos_words = ["开心","高兴","快乐","爽","不错","还好","挺好","棒","好心情","哈哈哈","哈哈","嘿嘿","nice","great","good","幸福","满足","舒服","放松","治愈","温暖","感动"]
             # 负向词
             neg_words = ["烦","累","难受","焦虑","压力","emo","崩溃","撑不住","想死","受不了","难过","伤心","哭","委屈","生气","愤怒","痛苦","绝望","失眠","疲惫","孤独","烦躁","抑郁","不安","恐惧","紧张","郁闷","无聊","没劲","没意思"]
+            # 高危危机关键词（自杀/自残/伤害）
+            crisis_words = ["想死","自杀","自残","活不下去","不想活了","结束生命","离开这个世界","好痛苦","撑不下去了","没有意义","不如死了","割腕","跳楼","安乐死","了结","一了百了","救救我","帮帮我","好绝望","坚持不住","太痛苦了","受不了了"]
+            is_crisis = any(w in text_lower for w in crisis_words)
             for w in pos_words:
                 if w in text_lower:
                     mood_score = min(mood_score + 2, 9)
@@ -1554,6 +1603,37 @@ async def chat_api(request: Request) -> Dict[str, Any]:
                 }).execute()
         except Exception:
             pass  # 静默失败，不影响对话
+
+
+        # 🚨 危机干预检测
+        if is_crisis:
+            helpline = (
+                "\n\n🆘 看到你提到了一些让人担心的话……\n\n"
+                "团团非常担心你。请先联系下面任何一个渠道，有人24小时等着你：\n\n"
+                "📞 全国24小时心理援助热线：**010-82951332**\n"
+                "📞 生命热线：**400-161-9995**\n"
+                "📞 北京心理危机研究与干预中心：**010-82951332**\n\n"
+                "也可以直接去最近医院的急诊科，他们会帮助你。\n\n"
+                "**你不孤单，再试一次，好吗？** 🫂"
+            )
+            reply = reply + "\n\n---\n" + helpline if len(reply) < 500 else reply
+            reply = reply[:500] + "\n\n---\n" + helpline
+            # 记录高危事件到日志
+            logger.warning(f"🚨 CRISIS ALERT - user: {session_id} - text: {text[:100]}")
+            # 写入高危日志表
+            from datetime import datetime
+            from storage.database.supabase_client import get_supabase_client
+            try:
+                sb = get_supabase_client()
+                sb.table("crisis_alerts").insert({
+                    "user_id": session_id,
+                    "user_text": text[:200],
+                    "ai_reply": reply[:200],
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "resolved": False
+                }).execute()
+            except Exception:
+                pass  # 日志写入失败不影响用户
 
         return {"output": reply, "session_id": session_id}
 
@@ -1654,6 +1734,107 @@ async def dashboard(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"/dashboard error: {e}")
         return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":["💬 说句话就开始记录啦"],"last_mood":0,"season":"spring","season_emoji":"🌸"}
+
+
+
+@app.get("/admin")
+async def admin_dashboard(request: Request):
+    """管理后台 - 基础数据看板"""
+    html = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>管理后台 - 情绪出口</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+body{background:#f5f2ee;color:#3d3229;padding:20px;max-width:800px;margin:auto;}
+h1{font-size:22px;margin-bottom:20px;color:#6b8e6b;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px;}
+.card{background:#fff;border-radius:12px;padding:16px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.04);}
+.card .num{font-size:28px;font-weight:700;color:#6b8e6b;}
+.card .label{font-size:12px;color:#b8a89a;margin-top:4px;}
+.card.warn .num{color:#d4869c;}
+.card.warn{background:#fff5f5;}
+h2{font-size:15px;margin:16px 0 10px;color:#555;}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.04);margin-bottom:20px;}
+th{background:#f0ebe5;padding:10px 12px;text-align:left;font-weight:500;color:#555;}
+td{padding:8px 12px;border-top:1px solid #f0ebe5;color:#666;}
+tr.crisis td{background:#fff5f5;color:#d4869c;font-weight:500;}
+a{color:#6b8e6b;text-decoration:none;margin:8px;display:inline-block;font-size:13px;}
+</style></head><body>
+<h1>📊 情绪出口 · 管理看板</h1>
+<div class="grid" id="stats-grid">
+  <div class="card"><div class="num" id="total-users">-</div><div class="label">总用户数</div></div>
+  <div class="card"><div class="num" id="active-today">-</div><div class="label">今日活跃</div></div>
+  <div class="card"><div class="num" id="avg-mood">-</div><div class="label">平均心情</div></div>
+  <div class="card warn"><div class="num" id="crisis-count">-</div><div class="label">🚨 高危预警</div></div>
+</div>
+<h2>🚨 未处理高危预警</h2>
+<table><thead><tr><th>时间</th><th>用户ID</th><th>内容</th><th>状态</th></tr></thead><tbody id="crisis-table">
+  <tr><td colspan="4" style="text-align:center;color:#b8a89a;">加载中...</td></tr>
+</tbody></table>
+<a href="/admin?raw=1">查看原始JSON数据</a> · <a href="/chat">← 返回首页</a>
+<script>
+async function loadAdmin() {
+  try {
+    const r = await fetch('/admin?raw=1');
+    const d = await r.json();
+    document.getElementById('total-users').textContent = d.total_users || 0;
+    document.getElementById('active-today').textContent = d.active_today || 0;
+    document.getElementById('avg-mood').textContent = (d.avg_mood || 0).toFixed(1);
+    document.getElementById('crisis-count').textContent = d.crisis_unresolved || 0;
+    const tb = document.getElementById('crisis-table');
+    if (d.crisis_list && d.crisis_list.length > 0) {
+      tb.innerHTML = d.crisis_list.map(c => 
+        '<tr class="crisis"><td>' + (c.created_at || '').slice(0,16) + '</td><td>' + c.user_id.slice(0,12) + '</td><td>' + (c.user_text || '').slice(0,30) + '</td><td>⚠️ 未处理</td></tr>'
+      ).join('');
+    } else {
+      tb.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#b8a89a;">✅ 暂无未处理预警</td></tr>';
+    }
+  } catch(e) {
+    document.getElementById('stats-grid').innerHTML = '<div class="card"><div class="num">❌</div><div class="label">数据加载失败</div></div>';
+  }
+}
+loadAdmin();
+setInterval(loadAdmin, 30000);
+</script>
+</body></html>"""
+    
+    raw = request.query_params.get("raw", "0")
+    if raw == "1":
+        # 返回JSON数据
+        from storage.database.supabase_client import get_supabase_client
+        from datetime import datetime, timedelta
+        sb = get_supabase_client()
+        today = datetime.now().strftime("%Y-%m-%d")
+        stats = {"total_users": 0, "active_today": 0, "avg_mood": 0, "crisis_unresolved": 0, "crisis_list": []}
+        
+        try:
+            # 总用户数（按user_id去重）
+            r = sb.table("mood_records").select("user_id").execute()
+            if r.data:
+                users = set(d["user_id"] for d in r.data if d.get("user_id"))
+                stats["total_users"] = len(users)
+            # 今日活跃
+            r2 = sb.table("mood_records").select("user_id").eq("created_at", today).execute()
+            if r2.data:
+                today_users = set(d["user_id"] for d in r2.data if d.get("user_id"))
+                stats["active_today"] = len(today_users)
+            # 平均心情
+            r3 = sb.table("mood_records").select("mood_score").execute()
+            if r3.data:
+                scores = [d["mood_score"] for d in r3.data if d.get("mood_score")]
+                stats["avg_mood"] = sum(scores) / len(scores) if scores else 0
+            # 高危预警
+            r4 = sb.table("crisis_alerts").select("*").eq("resolved", False).order("created_at", desc=True).limit(20).execute()
+            if r4.data:
+                stats["crisis_unresolved"] = len(r4.data)
+                stats["crisis_list"] = r4.data
+        except Exception as e:
+            stats["error"] = str(e)
+        
+        return stats
+    
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 @app.get("/flame")
 async def get_flame(request: Request) -> Dict[str, Any]:
@@ -1856,6 +2037,85 @@ async def chat_ui():
 
 @app.get("/health")
 async def health_check():
+    return {"message": "Service is running", "status": "ok", "version": "2.0.0"}
+
+@app.get("/privacy")
+async def privacy_policy():
+    """隐私协议页面"""
+    html = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>隐私协议 - 情绪出口</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+body{background:#faf6f2;color:#3d3229;padding:24px 16px;max-width:600px;margin:auto;line-height:1.8;}
+h1{font-size:20px;margin-bottom:16px;color:#6b8e6b;}
+h2{font-size:15px;margin:20px 0 8px;color:#555;}
+p{font-size:13px;margin-bottom:10px;color:#666;}
+.highlight{background:#e8f5e9;padding:12px;border-radius:8px;margin:12px 0;font-size:12px;color:#555;}
+</style></head><body>
+<h1>🛡️ 情绪出口 · 隐私协议</h1>
+<div class="highlight">最后更新：2025年6月</div>
+<h2>1. 我们收集什么</h2>
+<p>• 你主动输入的聊天内容<br>• 你记录的心情分数<br>• 会话标识（非真实身份）</p>
+<h2>2. 数据用途</h2>
+<p>仅用于生成AI陪伴回复和情绪趋势分析。你的数据不会被出售或分享给第三方。</p>
+<h2>3. 数据存储</h2>
+<p>聊天记录和心情数据存储在加密数据库中。我们采用行业标准安全措施保护你的数据。</p>
+<h2>4. 你的权利</h2>
+<p>你有权随时删除你的所有数据。可点击下方按钮一键清除：</p>
+<p style="text-align:center;margin:16px 0;">
+<a href="/delete_my_data?confirm=yes" style="display:inline-block;padding:10px 20px;background:#d4869c;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;">🗑️ 删除我的所有数据</a>
+</p>
+<h2>5. 免责声明</h2>
+<p>情绪出口是AI心理陪伴工具，不能替代专业心理咨询或医疗诊断。如果你有自伤或伤人的想法，请立即拨打全国24小时心理援助热线：<strong>010-82951332</strong></p>
+<h2>6. 联系我们</h2>
+<p>如有任何隐私相关问题，可通过应用内反馈渠道联系我们。</p>
+</body></html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
+
+@app.get("/delete_my_data")
+async def delete_my_data(session_id: str = Query(""), confirm: str = Query("no")):
+    """删除指定用户的所有数据"""
+    if confirm != "yes":
+        return {"status": "error", "message": "请确认删除操作", "hint": "请添加 ?confirm=yes&session_id=你的ID"}
+    if not session_id:
+        return {"status": "error", "message": "缺少session_id参数"}
+    
+    from storage.database.supabase_client import get_supabase_client
+    sb = get_supabase_client()
+    deleted = {"mood_records": 0, "checkin_records": 0, "partner_profiles": 0, "crisis_alerts": 0}
+    try:
+        r = sb.table("mood_records").delete().eq("user_id", session_id).execute()
+        deleted["mood_records"] = len(r.data) if r.data else 0
+    except Exception: pass
+    try:
+        r = sb.table("checkin_records").delete().eq("user_id", session_id).execute()
+        deleted["checkin_records"] = len(r.data) if r.data else 0
+    except Exception: pass
+    try:
+        r = sb.table("crisis_alerts").delete().eq("user_id", session_id).execute()
+        deleted["crisis_alerts"] = len(r.data) if r.data else 0
+    except Exception: pass
+    
+    return {"status": "ok", "message": "数据已删除", "deleted": deleted}
+
+@app.post("/delete_my_data")
+async def delete_my_data_post(request: Request):
+    """POST方式删除用户数据（前端调用）"""
+    try:
+        payload = await request.json()
+        session_id = payload.get("session_id", "")
+        if not session_id:
+            return {"status": "error", "message": "缺少session_id"}
+        # 调用上面的逻辑
+        from fastapi import Query as Q
+        from fastapi.responses import JSONResponse
+        result = await delete_my_data(session_id, "yes")
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
     try:
         # 这里可以添加更多的健康检查逻辑
         return {
@@ -1865,6 +2125,31 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+
+
+@app.post("/report")
+async def report_content(request: Request):
+    """用户举报/反馈AI回复内容"""
+    try:
+        payload = await request.json()
+        session_id = payload.get("session_id", "")
+        user_text = payload.get("user_text", "")
+        ai_reply = payload.get("ai_reply", "")
+        reason = payload.get("reason", "")
+        from datetime import datetime
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        sb.table("content_reports").insert({
+            "user_id": session_id,
+            "user_text": user_text[:200],
+            "ai_reply": ai_reply[:200],
+            "reason": reason[:100],
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "resolved": False
+        }).execute()
+        return {"status": "ok", "message": "已收到反馈，我们会核查"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get(path="/graph_parameter")
 async def http_graph_inout_parameter(request: Request):
