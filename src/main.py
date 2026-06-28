@@ -216,7 +216,84 @@ html, body {
 .pet-menu-item{display:flex;align-items:center;gap:6px;padding:8px 12px;border:none;background:none;font-size:12px;color:#3d3229;cursor:pointer;border-radius:8px;white-space:nowrap;transition:0.1s;width:100%;text-align:left;}
 .pet-menu-item:active{background:#f0ebe5;}
 
+
+/* ===== 火焰进化动画 ===== */
+@keyframes flameEvolution {
+  0% { transform: scale(1); filter: brightness(1); }
+  30% { transform: scale(1.8); filter: brightness(2); }
+  50% { transform: scale(2); filter: brightness(3) saturate(3); }
+  70% { transform: scale(1.4); filter: brightness(1.5); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+@keyframes sparkBurst {
+  0% { box-shadow: 0 0 0 rgba(255,200,50,0.5); }
+  50% { box-shadow: 0 0 40px rgba(255,200,50,0.8), 0 0 80px rgba(255,150,50,0.4); }
+  100% { box-shadow: 0 0 0 rgba(255,200,50,0); }
+}
+.flame-evolve {
+  animation: flameEvolution 0.8s ease !important;
+}
+.flame-burst {
+  animation: sparkBurst 0.6s ease;
+  border-radius: 50%;
+}
+#evolution-overlay {
+  display: none; position: fixed; inset: 0; z-index: 9999;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255,200,50,0.3) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+#evolution-overlay.show {
+  display: block;
+  opacity: 1;
+  animation: overlayFade 1.2s ease forwards;
+}
+@keyframes overlayFade {
+  0% { opacity: 0; }
+  20% { opacity: 0.6; }
+  60% { opacity: 0.3; }
+  100% { opacity: 0; display: none; }
+}
+/* 升级文字 */
+.level-up-text {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 42px; font-weight: 700; color: #fff; z-index: 10000;
+  pointer-events: none;
+  text-shadow: 0 0 30px rgba(255,200,50,0.8), 0 0 60px rgba(255,150,50,0.5);
+  opacity: 0;
+  animation: levelUpPop 1.2s ease forwards;
+}
+@keyframes levelUpPop {
+  0% { opacity: 0; transform: translate(-50%,-50%) scale(0.3); }
+  30% { opacity: 1; transform: translate(-50%,-50%) scale(1.2); }
+  60% { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%,-60%) scale(0.8); }
+}
+/* ===== 每日任务 ===== */
+.mission-section { margin-top: 14px; }
+.mission-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mission-title { font-size: 13px; font-weight: 600; color: #3d3229; }
+.mission-badge { font-size: 11px; color: #6b8e6b; background: #e8f5e9; padding: 2px 8px; border-radius: 10px; }
+.mission-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; margin-bottom: 5px; cursor: pointer; transition: 0.15s; border: none; width: 100%; text-align: left; background: #faf6f2; font-size: 13px; color: #3d3229; }
+.mission-item:active { background: #f0ebe5; }
+.mission-item.done { background: #e8f5e9; text-decoration: line-through; color: #8ab88a; }
+.mission-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #d4c8bc; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; transition: 0.15s; }
+.mission-item.done .mission-check { border-color: #6b8e6b; background: #6b8e6b; }
+/* 季节花园标签 */
+.season-tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+.season-spring { background: #fce4ec; color: #e91e63; }
+.season-summer { background: #fff3e0; color: #ff6f00; }
+.season-autumn { background: #fbe9e7; color: #d84315; }
+.season-winter { background: #e3f2fd; color: #1565c0; }
+
 </style>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="情绪出口">
+<meta name="mobile-web-app-capable" content="yes">
+
 </head>
 <body>
 <div class="header">
@@ -274,10 +351,19 @@ html, body {
     <div style="font-size:13px;color:#b8a89a;margin-bottom:4px;">最近心情</div>
     <div class="week-labels" id="week-labels"></div>
     <div class="mood-chart" id="mood-chart"></div>
-    <div style="font-size:13px;color:#b8a89a;margin-top:12px;margin-bottom:4px;">🌺 情绪花园</div>
+    <div style="font-size:13px;color:#b8a89a;margin-top:12px;margin-bottom:4px;">🌺 情绪花园 <span class="season-tag" id="season-tag">🌸 春</span></div>
     <div class="garden" id="garden-display">🌱</div>
     <div style="font-size:13px;color:#b8a89a;margin-bottom:4px;">🏆 成就</div>
-    <div class="achievements" id="achievements-display">
+    
+    <div class="mission-section">
+      <div class="mission-header">
+        <span class="mission-title">🎯 今日小任务</span>
+        <span class="mission-badge" id="mission-badge">0/3</span>
+      </div>
+      <div id="mission-list"></div>
+    </div>
+
+<div class="achievements" id="achievements-display">
       <div class="achi-item">💬 说句话就开始记录啦</div>
     </div>
   </div>
@@ -433,6 +519,15 @@ function loadDashboard() {
       chart.innerHTML = '<div style="font-size:12px;color:#c4b5a5;padding:10px 0;">聊聊天就开始记录了 🌱</div>';
       labs.innerHTML = '';
     }
+    // 更新季节标签
+    const seasonTag = document.getElementById('season-tag');
+    if (seasonTag && d.season) {
+      const sn = {spring:'🌸 春',summer:'☀️ 夏',autumn:'🍂 秋',winter:'❄️ 冬'};
+      seasonTag.textContent = sn[d.season] || '🌸';
+      seasonTag.className = 'season-tag season-' + d.season;
+    }
+    // 每日任务
+    loadMissions();
     const aDiv = document.getElementById('achievements-display');
     const aList = d.achievement || ['💬 说句话就开始记录啦'];
     aDiv.innerHTML = aList.map(a => '<div class="achi-item">'+a+'</div>').join('');
@@ -487,10 +582,34 @@ function loadFlame() {
     const st = document.getElementById('flame-streak');
     if (!el) return;
     // 火焰切换时加一个缩放动画
-    if (el.textContent !== (d.emoji || '💧')) {
-      el.style.transform = 'scale(1.3)';
-      setTimeout(() => el.style.transform = 'scale(1)', 200);
+    const oldEmoji = el.textContent;
+    const oldLevel = parseInt(el.dataset.level || '-1');
+    const newLevel = d.level || 0;
+    
+    if (oldEmoji !== (d.emoji || '💧')) {
+      // 检测升级
+      if (newLevel > oldLevel && oldLevel >= 0) {
+        // 升级特效！
+        el.classList.add('flame-evolve');
+        const overlay = document.getElementById('evolution-overlay');
+        if (overlay) {
+          overlay.classList.add('show');
+          setTimeout(() => overlay.classList.remove('show'), 1200);
+        }
+        // 升级文字
+        const labels = ['💧 水滴', '✨ 火花', '🔥 小火', '🔥🔥 中火', '🔥🔥🔥 大火', '🔥🔥🔥🔥🔥 不灭之焰'];
+        const lvText = document.createElement('div');
+        lvText.className = 'level-up-text';
+        lvText.textContent = '✨ 升级！' + (labels[newLevel] || '');
+        document.body.appendChild(lvText);
+        setTimeout(() => lvText.remove(), 1400);
+      } else {
+        // 普通变化（降级或新用户）
+        el.style.transform = 'scale(1.3)';
+        setTimeout(() => el.style.transform = 'scale(1)', 200);
+      }
     }
+    el.dataset.level = newLevel;
     el.textContent = d.emoji || '💧';
     nm.textContent = d.name || '小火苗';
     st.textContent = d.streak + '天';
@@ -705,10 +824,56 @@ function updatePetGlow(moodScore) {
 // 在 loadFlame 和 loadDashboard 中集成光晕
 // 重写原 loadFlame 的最后部分来触发光晕更新
 
+
+// --- 每日任务 ---
+async function loadMissions() {
+  try {
+    const res = await fetch('/missions');
+    const d = await res.json();
+    const list = document.getElementById('mission-list');
+    if (!list) return;
+    // 读取今天的完成状态
+    const doneKey = 'eos_mission_' + d.date;
+    const done = JSON.parse(localStorage.getItem(doneKey) || '[]');
+    const badge = document.getElementById('mission-badge');
+    
+    list.innerHTML = d.missions.map((m, i) => {
+      const isDone = done.includes(i);
+      return '<button class="mission-item' + (isDone ? ' done' : '') + '" onclick="toggleMission(' + i + ')">' +
+        '<span class="mission-check">' + (isDone ? '✓' : '') + '</span>' +
+        '<span>' + m + '</span></button>';
+    }).join('');
+    
+    if (badge) badge.textContent = done.length + '/3';
+  } catch(e) {}
+}
+
+function toggleMission(idx) {
+  // 先获取今天的任务日期
+  fetch('/missions').then(r => r.json()).then(d => {
+    const doneKey = 'eos_mission_' + d.date;
+    const done = JSON.parse(localStorage.getItem(doneKey) || '[]');
+    const i = done.indexOf(idx);
+    if (i >= 0) done.splice(i, 1);
+    else done.push(idx);
+    localStorage.setItem(doneKey, JSON.stringify(done));
+    loadMissions();
+    loadDashboard();
+    // 全部完成时弹个小庆祝
+    if (done.length === 3) {
+      const el = document.getElementById('flame-emoji');
+      if (el) { el.classList.add('flame-evolve'); setTimeout(() => el.classList.remove('flame-evolve'), 800); }
+    }
+  });
+}
+
 // --- 自动加载 ---
 setTimeout(loadDashboard, 1000);
 setTimeout(loadFlame, 1500);
 </script>
+<!-- 火焰进化全屏特效 -->
+<div id="evolution-overlay"></div>
+
 </body>
 </html>"""
 
@@ -1006,6 +1171,36 @@ async def http_async_run(request: Request) -> dict:
         raise HTTPException(status_code=503,
                             detail=f"async-task storage unavailable: {e}")
 
+
+
+
+@app.get("/manifest.json")
+async def manifest():
+    """PWA Manifest"""
+    return {
+        "name": "情绪出口 - 团团陪你",
+        "short_name": "情绪出口",
+        "description": "AI心理陪伴 · 情绪记录 · 熊猫团团",
+        "start_url": "/chat",
+        "display": "standalone",
+        "background_color": "#faf6f2",
+        "theme_color": "#6b8e6b",
+        "orientation": "portrait",
+        "icons": [
+            {"src": "/panda_icon.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/panda_icon.png", "sizes": "512x512", "type": "image/png"}
+        ]
+    }
+
+@app.get("/panda_icon.png")
+async def panda_icon():
+    """Return a simple SVG panda icon as PNG replacement"""
+    from fastapi.responses import Response
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+      <rect width="192" height="192" rx="32" fill="#6b8e6b"/>
+      <text x="96" y="124" font-size="100" text-anchor="middle">🐼</text>
+    </svg>'''
+    return Response(content=svg, media_type="image/svg+xml")
 
 @app.get("/task/{task_id}")
 async def http_get_task(task_id: str) -> dict:
@@ -1371,7 +1566,7 @@ async def dashboard(request: Request) -> Dict[str, Any]:
                 mood_values.append(s)
                 last_week_scores.append(s)
                 note = m.get("note", "") or ""
-                flower = "🌸" if s >= 8 else "🌼" if s >= 6 else "🌿" if s >= 4 else "🍂" if s >= 2 else "🥀"
+                flower = _get_season_flowers(s)
                 garden_parts.append(flower)
 
             # 情绪出口指数 = 近7天均值(50%) + 连续天数分(30%) + 总体量(20%)
@@ -1406,11 +1601,13 @@ async def dashboard(request: Request) -> Dict[str, Any]:
             "mood_values": mood_values,
             "garden": " ".join(garden_parts[-30:]),
             "achievement": milestones,
-            "last_mood": moods[-1].get("mood_score", 0) if moods else 0
+            "last_mood": moods[-1].get("mood_score", 0) if moods else 0,
+            "season": _get_season(),
+            "season_emoji": _get_season_emoji()
         }
     except Exception as e:
         logger.error(f"/dashboard error: {e}")
-        return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":["💬 说句话就开始记录啦"],"last_mood":0}
+        return {"streak_days":0,"exit_index":0,"total_days":0,"mood_labels":[],"mood_values":[],"garden":"🌱","achievement":["💬 说句话就开始记录啦"],"last_mood":0,"season":"spring","season_emoji":"🌸"}
 
 @app.get("/flame")
 async def get_flame(request: Request) -> Dict[str, Any]:
@@ -1494,6 +1691,89 @@ async def get_flame(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"/flame error: {e}")
         return {"streak":0,"level":0,"color":"#ccc","emoji":"💧","name":"小火苗","message":"来聊聊天点燃火苗吧"}
+
+
+# 每日小任务清单（30+条）
+DAILY_MISSIONS = [
+    "给窗台的花浇浇水 🌸",
+    "写下今天值得感恩的3件事 ✍️",
+    "对着镜子给自己一个微笑 😊",
+    "听一首很久没听的歌 🎵",
+    "给一位朋友发条问候消息 💬",
+    "做5分钟深呼吸 🧘",
+    "整理书桌的一个角落 🧹",
+    "看一段治愈的自然风景视频 🌿",
+    "写下今天的一个小成就 📝",
+    "拉伸一下肩颈 🙆",
+    "喝一杯温水 🚰",
+    "给某人一句真诚的赞美 💝",
+    "出门走5分钟 🚶",
+    "读一首诗或一段散文 📖",
+    "画一幅简笔画 🎨",
+    "拍一张天空的照片 ☁️",
+    "泡一杯喜欢的茶/咖啡 ☕",
+    "写一封不寄出的信 ✉️",
+    "做一件拖延了很久的小事 ✅",
+    "跟着音乐扭几下 💃",
+    "闻一闻喜欢的味道（香水/花香）👃",
+    "摸一摸毛绒玩具或者宠物 🧸",
+    "对自己说一句「辛苦了」🥺",
+    "计划一件周末想做的事 📅",
+    "关掉手机屏幕发呆3分钟 📴",
+    "吃一种新鲜水果 🍎",
+    "翻看一张过去的照片 📸",
+    "把垃圾袋打结扔掉 🗑️",
+    "写下明天的3个优先事项 📋",
+    "做10个开合跳 🏃",
+    "给未来的自己写一句话 📮",
+]
+
+@app.get("/missions")
+async def daily_missions(request: Request) -> Dict[str, Any]:
+    """返回当天的3个随机小任务（基于日期种子，全天一致）"""
+    import hashlib
+    from datetime import date
+    today = date.today()
+    # 用日期做种子，同一天所有人都一样
+    seed_str = f"mission_{today.isoformat()}"
+    seed_hash = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+    
+    # 伪随机选3个
+    import random
+    rng = random.Random(seed_hash)
+    picked = rng.sample(DAILY_MISSIONS, 3)
+    
+    return {
+        "date": today.isoformat(),
+        "missions": picked,
+        "season": _get_season(),
+        "season_emoji": _get_season_emoji()
+    }
+
+def _get_season():
+    from datetime import date
+    m = date.today().month
+    if 3 <= m <= 5: return "spring"
+    if 6 <= m <= 8: return "summer"
+    if 9 <= m <= 11: return "autumn"
+    return "winter"
+
+def _get_season_emoji():
+    s = _get_season()
+    return {"spring": "🌸", "summer": "☀️", "autumn": "🍂", "winter": "❄️"}.get(s, "🌸")
+
+def _get_season_flowers(mood_score: float) -> str:
+    """根据季节和心情返回对应的花 emoji"""
+    s = _get_season()
+    if s == "spring":
+        return "🌸" if mood_score >= 8 else "🌷" if mood_score >= 6 else "🌱" if mood_score >= 4 else "🍂"
+    elif s == "summer":
+        return "🌻" if mood_score >= 8 else "🌴" if mood_score >= 6 else "☀️" if mood_score >= 4 else "💧"
+    elif s == "autumn":
+        return "🍁" if mood_score >= 8 else "🌾" if mood_score >= 6 else "🎑" if mood_score >= 4 else "🥀"
+    else:  # winter
+        return "❄️" if mood_score >= 8 else "⛄" if mood_score >= 6 else "🌨️" if mood_score >= 4 else "🥶"
+
 
 
 @app.post("/log_mood")
