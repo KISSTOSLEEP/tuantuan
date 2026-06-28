@@ -87,6 +87,24 @@ html, body {
 #flame-emoji{font-size:18px;transition:0.3s;}
 #flame-name{font-size:11px;color:#8b7a6a;white-space:nowrap;}
 #flame-streak{font-size:10px;color:#b8a89a;background:#f5f0eb;padding:1px 5px;border-radius:8px;white-space:nowrap;}
+/* 团团心情镜子 */
+#mood-mirror{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;background:#f5f0eb;cursor:pointer;transition:0.2s;flex-shrink:0;font-size:11px;color:#8b7a6a;}
+#mood-mirror:active{transform:scale(0.95);}
+#mood-mirror-emoji{font-size:14px;}
+#mood-mirror-label{font-size:10px;white-space:nowrap;max-width:50px;overflow:hidden;text-overflow:ellipsis;}
+/* 团团小宇宙入口 */
+#universe-btn{background:none;border:none;font-size:16px;cursor:pointer;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:0.12s;color:#b8a89a;}
+#universe-btn:active{background:#f0ebe5;transform:scale(0.92);}
+/* 小宇宙面板 */
+#universe-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;animation:fadeIn 0.3s;}
+#universe-panel.show{display:flex;}
+#universe-card{background:linear-gradient(145deg,#2d4a3e,#1a2f26);border-radius:20px;padding:28px 24px;max-width:340px;width:90%;color:#e8f0e0;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.4);}
+#universe-card h3{font-size:18px;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+#universe-card .sub{font-size:12px;color:#a0c0b0;margin-bottom:16px;}
+#universe-scene{min-height:120px;background:rgba(255,255,255,0.05);border-radius:14px;padding:16px;margin-bottom:14px;font-size:14px;line-height:1.6;text-align:center;display:flex;flex-direction:column;justify-content:center;}
+#universe-scene .big{font-size:48px;margin-bottom:10px;}
+#universe-close{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);color:#e8f0e0;padding:8px 20px;border-radius:20px;cursor:pointer;font-size:13px;width:100%;transition:0.2s;}
+#universe-close:active{background:rgba(255,255,255,0.2);}
 /* ===== 聊天区 ===== */
 .chat-wrap{flex:1;overflow-y:auto;padding:12px 12px 4px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;overscroll-behavior:none;}
 .chat-wrap::-webkit-scrollbar{width:3px;}
@@ -312,6 +330,11 @@ html, body {
     <span id="flame-streak" style="font-size:11px;color:#b8a89a;background:#f5f0eb;padding:1px 6px;border-radius:8px;">0天</span>
   </div>
   <div class="header-right">
+    <div id="mood-mirror" onclick="toggleUniverse()" title="团团的心情">
+      <span id="mood-mirror-emoji">🌿</span>
+      <span id="mood-mirror-label">平静</span>
+    </div>
+    <button class="icon-btn" onclick="toggleUniverse()" title="团团的小宇宙" id="universe-btn">🌳</button>
     <button class="icon-btn" onclick="openPanel()" title="查看数据">📊</button>
     <button class="icon-btn" onclick="openSettings()" title="个性化设置">⚙️</button>
   </div>
@@ -926,6 +949,46 @@ function toggleMission(idx) {
 }
 
 
+// --- 团团心情镜子 + 小宇宙 ---
+const UNIVERSE_SCENES = [
+  { emoji: '🌿', scene: '团团在竹林里晒太阳，风吹得叶子沙沙响。它眯着眼睛，看起来很放松。', mood: '平静' },
+  { emoji: '🎋', scene: '团团抱着新长的嫩竹子，开心地晃着脚。今天是个好日子！', mood: '开心' },
+  { emoji: '☕', scene: '团团泡了杯竹叶茶，坐在窗边看外面的雨。雨滴打在叶子上，滴滴答答。', mood: '惬意' },
+  { emoji: '🌙', scene: '团团缩在竹屋的小床上，外面月光洒进来。它打了个哈欠，准备睡了。', mood: '困倦' },
+  { emoji: '💧', scene: '团团一个人蹲在竹林角落，抱着膝盖。它不想说话，就想自己待一会儿。', mood: '低落' },
+  { emoji: '🍂', scene: '团团在竹林里慢慢走着，踩着落叶。风吹过来有点冷，它把围巾裹紧了些。', mood: '安静' },
+  { emoji: '🎵', scene: '团团不知道从哪里翻出一个旧收音机，放着沙沙的音乐。它跟着哼了起来。', mood: '悠然' },
+  { emoji: '⚡', scene: '团团在竹林里跑来跑去，把竹子撞得东倒西歪。它今天精力旺盛得不像一只熊猫。', mood: '兴奋' },
+  { emoji: '🌱', scene: '团团蹲在地上看一棵新冒出来的竹笋，伸出手轻轻碰了碰。', mood: '好奇' },
+];
+
+async function loadTuantuanMood() {
+  try {
+    const r = await safeFetch('/tuantuan_mood', { timeout: 5000 });
+    const d = await r.json();
+    if (d.status === 'ok' && d.mood) {
+      const m = d.mood;
+      const emojiMap = { '开心':'😊','烦躁':'😤','疲倦':'😴','平静':'😌','低落':'😢','兴奋':'🤩','好奇':'🤔','生气':'😠','感动':'🥹','惬意':'😌','困倦':'😪','安静':'🤫','悠然':'🎵' };
+      const moodEmoji = emojiMap[m.mood_label] || '🌿';
+      document.getElementById('mood-mirror-emoji').textContent = moodEmoji;
+      document.getElementById('mood-mirror-label').textContent = m.mood_label || '平静';
+      document.getElementById('mood-mirror').title = `团团心情：${m.mood_label}（${m.mood_score}/10）`;
+    }
+  } catch(e) {}
+}
+
+function toggleUniverse() {
+  const panel = document.getElementById('universe-panel');
+  if (panel.classList.contains('show')) {
+    panel.classList.remove('show');
+    return;
+  }
+  // 随机选一个场景
+  const scene = UNIVERSE_SCENES[Math.floor(Math.random() * UNIVERSE_SCENES.length)];
+  document.getElementById('universe-scene-content').innerHTML = `<div class="big">${scene.emoji}</div><div>${scene.scene}</div>`;
+  panel.classList.add('show');
+}
+
 // --- 隐私同意 ---
 function acceptPrivacy() {
   document.getElementById('privacy-overlay').style.display = 'none';
@@ -941,10 +1004,25 @@ document.addEventListener('DOMContentLoaded', function() {
 // --- 自动加载 ---
 setTimeout(loadDashboard, 1000);
 setTimeout(loadFlame, 1500);
+setTimeout(loadTuantuanMood, 2000);
 </script>
 <!-- 火焰进化全屏特效 -->
 <div id="evolution-overlay"></div>
 
+<!-- 团团小宇宙 -->
+<div id="universe-panel">
+  <div id="universe-card">
+    <h3>🌳 团团的小宇宙</h3>
+    <div class="sub">团团此刻在做什么呢…</div>
+    <div id="universe-scene">
+      <div id="universe-scene-content">
+        <div class="big">🌿</div>
+        <div>团团在竹林里散步……</div>
+      </div>
+    </div>
+    <button id="universe-close" onclick="toggleUniverse()">关上门，下次再来 🐼</button>
+  </div>
+</div>
 
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("/sw.js").catch(function(){})}</script>
 </body>
@@ -2028,6 +2106,20 @@ async def log_mood(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"/log_mood error: {e}")
         return {"status": "error", "mood_score": 5}
+
+
+@app.get("/tuantuan_mood")
+async def tuantuan_mood():
+    """返回团团最近的心情"""
+    try:
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        res = sb.table("tuantuan_moods").select("*").order("created_at", desc=True).limit(1).execute()
+        if res.data:
+            return {"status": "ok", "mood": res.data[0]}
+        return {"status": "ok", "mood": None}
+    except Exception as e:
+        return {"status": "ok", "mood": None}
 
 
 @app.get("/chat", response_class=HTMLResponse)

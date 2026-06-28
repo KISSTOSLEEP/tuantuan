@@ -32,6 +32,7 @@ from tools.mood_chart_tool import generate_mood_trend_chart, generate_mood_calen
 from tools.voice_companion_tool import voice_companion
 from tools.notification_service import register_push_schedule, list_my_schedules, cancel_push_schedule, check_my_patterns
 from tools.panda_mascot import get_panda_message, generate_mood_garden
+from tools.tuantuan_core import record_tuantuan_mood, save_user_trait, get_user_traits, get_tuantuan_latest_mood
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -73,7 +74,7 @@ def build_agent(ctx=None):
         default_headers=default_headers(ctx) if ctx else {},
     )
 
-    # 注册所有可用工具（17个旧工具 + 8个新增 = 25个工具）
+    # 注册所有可用工具（25个老工具 + 4个团团核心工具 = 29个工具）
     tools = [
         music_recommend,
         search_song_url,
@@ -106,6 +107,11 @@ def build_agent(ctx=None):
         check_my_patterns,
         get_panda_message,
         generate_mood_garden,
+        # 团团核心人格工具
+        record_tuantuan_mood,
+        save_user_trait,
+        get_user_traits,
+        get_tuantuan_latest_mood,
     ]
 
     return create_agent(
