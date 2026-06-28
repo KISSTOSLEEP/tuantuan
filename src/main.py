@@ -288,6 +288,7 @@ html, body {
 .season-winter { background: #e3f2fd; color: #1565c0; }
 
 </style>
+<link rel="icon" href="/panda_icon.png" type="image/svg+xml">
 <link rel="manifest" href="/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -1506,7 +1507,7 @@ async def chat_api(request: Request) -> Dict[str, Any]:
                     "notes": text[:50],
                     "created_at": now_str
                 }).execute()
-        except:
+        except Exception:
             pass  # 静默失败，不影响对话
 
         return {"output": reply, "session_id": session_id}
@@ -1530,7 +1531,7 @@ async def dashboard(request: Request) -> Dict[str, Any]:
         try:
             resp = sb.table("mood_records").select("*").eq("user_id", session_id).order("created_at", desc=True).limit(30).execute()
             moods = list(reversed(resp.data)) if resp.data else []
-        except: pass
+        except Exception: pass
 
         total_days = len(moods)
         streak = 0
