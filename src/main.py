@@ -599,24 +599,25 @@ const PANDA_EMOJIS = {
 
 function getPandaMood(text) {
   const t = text.toLowerCase();
-  // 开心/积极
-  if (/开心|哈哈|太好|超棒|喜欢|快乐|幸福|好诶|耶|嘻嘻|可爱|温暖|感动|谢谢|加油|值得/t.test(t)) return 'happy';
-  // 难过/低落
-  if (/难过|伤心|哭|难受|辛苦|累了|疲惫|走不出来|好痛|心疼|抱抱|🫂|遗憾/t.test(t)) return 'sad';
-  // 思考/深沉
-  if (/也许|可能|我觉得|不知道|为什么|想过|想过|理解|懂了|明白|原来是|有意思/t.test(t)) return 'think';
-  // 兴奋/激动
-  if (/太棒|真的吗|哇|厉害|超|太..了|燃|冲|一定要|相信我|可以的|就是现在/t.test(t)) return 'excited';
-  // 温暖/爱意
-  if (/爱|喜欢|想你|陪着|一直|在乎|重要|珍惜|永远|不管怎样|在呢/t.test(t)) return 'love';
-  // 困惑
-  if (/什么|哈|嗯？|奇怪|不懂|啥|真的假的|啊？/t.test(t)) return 'confused';
-  // 困/懒
-  if (/困了|睡了|晚安|休息|累|lazy|躺着|瘫/t.test(t)) return 'sleepy';
-  // 得意
-  if (/当然|不是我吹|我可是|团团我|厉害吧|有我在|交给我/t.test(t)) return 'proud';
-  // 生气/不耐烦
-  if (/烦|走开|不理|生气|哼|够了|别说了/t.test(t)) return 'annoyed';
+  var re;
+  re = /开心|哈哈|太好|超棒|喜欢|快乐|幸福|好诶|耶|嘻嘻|可爱|温暖|感动|谢谢|加油|值得/;
+  if (re.test(t)) return 'happy';
+  re = /难过|伤心|哭|难受|辛苦|累了|疲惫|走不出来|好痛|心疼|抱抱|遗憾/;
+  if (re.test(t)) return 'sad';
+  re = /也许|可能|我觉得|不知道|为什么|想过|理解|懂了|明白|原来是|有意思/;
+  if (re.test(t)) return 'think';
+  re = /太棒|真的吗|哇|厉害|超|燃|冲|一定要|相信我|可以的|就是现在/;
+  if (re.test(t)) return 'excited';
+  re = /爱|喜欢|想你|陪着|一直|在乎|重要|珍惜|永远|不管怎样|在呢/;
+  if (re.test(t)) return 'love';
+  re = /什么|哈|奇怪|不懂|啥|真的假的/;
+  if (re.test(t)) return 'confused';
+  re = /困了|睡了|晚安|休息|累|躺着|瘫/;
+  if (re.test(t)) return 'sleepy';
+  re = /当然|不是我吹|我可是|团团我|厉害吧|有我在|交给我/;
+  if (re.test(t)) return 'proud';
+  re = /烦|走开|不理|生气|哼|够了|别说了/;
+  if (re.test(t)) return 'annoyed';
   return 'neutral';
 }
 
