@@ -188,7 +188,35 @@ html, body {
 /* ===== 滚动条通用 ===== */
 ::-webkit-scrollbar{width:3px;}
 ::-webkit-scrollbar-thumb{background:#ddd;border-radius:2px;}
-</style></style>
+
+/* ===== 小桌宠团团 ===== */
+.pet-wrap{position:fixed;bottom:80px;right:12px;z-index:999;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;transition:filter 0.3s;}
+.pet-wrap:active{cursor:grabbing;}
+.pet-body{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,0.1);transition:0.15s;position:relative;}
+.pet-body:hover{box-shadow:0 4px 20px rgba(0,0,0,0.15);}
+.pet-idle{animation:petBob 2.5s ease-in-out infinite;}
+@keyframes petBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+.pet-pop{animation:petPop 0.4s ease;}
+@keyframes petPop{0%{transform:scale(1);}40%{transform:scale(1.2);}70%{transform:scale(0.95);}100%{transform:scale(1);}}
+.pet-wave{animation:petWave 0.6s ease;}
+@keyframes petWave{0%,100%{transform:rotate(0deg);}25%{transform:rotate(-10deg);}50%{transform:rotate(10deg);}75%{transform:rotate(-5deg);}}
+/* 情绪光晕 */
+.pet-glow-green{box-shadow:0 0 16px rgba(107,142,107,0.3);}
+.pet-glow-blue{box-shadow:0 0 16px rgba(91,141,238,0.3);}
+.pet-glow-purple{box-shadow:0 0 16px rgba(155,89,182,0.3);}
+.pet-glow-gray{box-shadow:0 0 16px rgba(142,142,142,0.3);}
+.pet-glow-gold{box-shadow:0 0 16px rgba(255,165,0,0.3);}
+/* 气泡 */
+.pet-bubble{position:absolute;bottom:62px;right:6px;background:#fff;border-radius:12px;padding:6px 10px;font-size:12px;color:#3d3229;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.08);opacity:0;pointer-events:none;transition:0.2s;max-width:140px;overflow:hidden;text-overflow:ellipsis;}
+.pet-bubble::after{content:'';position:absolute;bottom:-4px;right:18px;width:8px;height:8px;background:#fff;transform:rotate(45deg);box-shadow:2px 2px 4px rgba(0,0,0,0.04);}
+.pet-wrap:hover .pet-bubble{opacity:1;bottom:66px;}
+/* 操作菜单 */
+.pet-menu{position:absolute;bottom:64px;right:0;background:#fff;border-radius:12px;padding:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);opacity:0;pointer-events:none;transform:translateY(8px);transition:0.2s;display:flex;flex-direction:column;gap:2px;z-index:1000;}
+.pet-menu.show{opacity:1;pointer-events:auto;transform:translateY(0);}
+.pet-menu-item{display:flex;align-items:center;gap:6px;padding:8px 12px;border:none;background:none;font-size:12px;color:#3d3229;cursor:pointer;border-radius:8px;white-space:nowrap;transition:0.1s;width:100%;text-align:left;}
+.pet-menu-item:active{background:#f0ebe5;}
+
+</style>
 </head>
 <body>
 <div class="header">
@@ -256,6 +284,22 @@ html, body {
 </div>
 
 <!-- 设置面板 -->
+
+<!-- 小桌宠团团 -->
+<div class="pet-wrap" id="pet-wrap">
+  <div class="pet-bubble" id="pet-bubble">戳戳我~ 🐼</div>
+  <div class="pet-menu" id="pet-menu">
+    <button class="pet-menu-item" onclick="petAction('poke')">👉 戳一下</button>
+    <button class="pet-menu-item" onclick="petAction('hug')">🫂 抱抱</button>
+    <button class="pet-menu-item" onclick="petAction('feed')">🎋 喂竹子</button>
+    <button class="pet-menu-item" onclick="petAction('dance')">💃 跳舞</button>
+    <button class="pet-menu-item" onclick="petAction('hide')">😴 休息</button>
+  </div>
+  <div class="pet-body" id="pet-body" onclick="petClick()">
+    <span id="pet-emoji">🐼</span>
+  </div>
+</div>
+
 <div class="settings-overlay" id="settings-overlay" onclick="closeSettings(event)">
   <div class="settings-modal" onclick="event.stopPropagation()">
     <div class="settings-header"><span>🎨 个性化设置</span><button onclick="closeSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button></div>
@@ -392,6 +436,7 @@ function loadDashboard() {
     const aDiv = document.getElementById('achievements-display');
     const aList = d.achievement || ['💬 说句话就开始记录啦'];
     aDiv.innerHTML = aList.map(a => '<div class="achi-item">'+a+'</div>').join('');
+    if (d.last_mood) updatePetGlow(d.last_mood);
   }).catch(()=>{});
 }
 // --- 面板 ---
@@ -458,12 +503,212 @@ function loadFlame() {
       else if (c.includes('9b') || c.includes('b0') || c.includes('c7')) el.classList.add('anim-purple');
       else el.classList.add('anim-orange');
     }
+    // 更新桌宠光晕
+    updatePetGlow(d.color && parseInt(d.level) > 0 ? 
+      ({'#ff6b35':9,'#ff8c42':8,'#ffa500':7,'#ffb84d':6,'#5b8dee':5,'#7ba3f0':4,'#9b59b6':3,'#b07cc6':2,'#8e8e8e':1}[d.color] || 5) : 5);
   }).catch(()=>{});
 }
+
+// --- 小桌宠团团 ---
+let petState = { dragging: false, startX: 0, startY: 0, origX: 0, origY: 0, hidden: false };
+const petMsgs = {
+  poke: ['哎呀！', '别戳我脸啦 🐼', '痒～哈哈哈', '再戳要生气了 😤', '咕噜咕噜～'],
+  hug: ['抱抱 🤗', '好温暖 🧡', '再抱紧点！', '团团也很开心～', '有你在真好'],
+  feed: ['哇！竹子！🎋', '好吃好吃～', '再来一根！', '嗝～吃饱了', '囤起来当零食'],
+  dance: ['💃转圈圈～', '左三圈右三圈～', '嗷呜～', '跳累了休息下', '你一起跳吗？'],
+  hide: ['好～团团休息了', '晚安 🌙', 'zzZ...', '梦到你了 🐼', '半小时后叫我~'],
+  auto: ['团团在呢 🐼', '今天过得怎么样？', '我一直在哦 🧡', '盯～～👀', '要不要聊聊天？']
+};
+
+function getPetMsg(type) {
+  const msgs = petMsgs[type] || petMsgs.auto;
+  return msgs[Math.floor(Math.random() * msgs.length)];
+}
+
+function petClick() {
+  const body = document.getElementById('pet-body');
+  const emoji = document.getElementById('pet-emoji');
+  const bubble = document.getElementById('pet-bubble');
+  body.classList.remove('pet-idle');
+  body.classList.add('pet-pop');
+  // 随机表情互动
+  const exprs = { '🐼': ['🎋','🐾','🛌','🥟','🍃'], '🎋': ['🐼','🐾'], '🐾': ['🐼','🌱'] };
+  const cur = emoji.textContent;
+  const options = exprs[cur] || ['🐼','🎋','🐾','🌱'];
+  emoji.textContent = options[Math.floor(Math.random() * options.length)];
+  bubble.textContent = getPetMsg('poke');
+  bubble.style.opacity = '1';
+  setTimeout(() => { 
+    emoji.textContent = '🐼'; 
+    body.classList.remove('pet-pop');
+    body.classList.add('pet-idle');
+  }, 600);
+  setTimeout(() => { bubble.style.opacity = '0'; }, 2500);
+  // 关闭菜单
+  document.getElementById('pet-menu')?.classList.remove('show');
+}
+
+function petAction(type) {
+  const emoji = document.getElementById('pet-emoji');
+  const body = document.getElementById('pet-body');
+  const bubble = document.getElementById('pet-bubble');
+  const menu = document.getElementById('pet-menu');
+  
+  menu.classList.remove('show');
+  body.classList.remove('pet-idle');
+  
+  if (type === 'poke') {
+    body.classList.add('pet-pop');
+    emoji.textContent = '😏';
+    setTimeout(() => { emoji.textContent = '🐼'; body.classList.add('pet-idle'); body.classList.remove('pet-pop'); }, 800);
+  } else if (type === 'hug') {
+    emoji.textContent = '🤗';
+    setTimeout(() => { emoji.textContent = '🐼'; body.classList.add('pet-idle'); }, 1200);
+  } else if (type === 'feed') {
+    emoji.textContent = '🎋';
+    body.classList.add('pet-pop');
+    setTimeout(() => { emoji.textContent = '🐼'; body.classList.add('pet-idle'); body.classList.remove('pet-pop'); }, 1000);
+  } else if (type === 'dance') {
+    body.classList.add('pet-wave');
+    emoji.textContent = '💃';
+    setTimeout(() => { emoji.textContent = '🐼'; body.classList.remove('pet-wave'); body.classList.add('pet-idle'); }, 1200);
+  } else if (type === 'hide') {
+    emoji.textContent = '💤';
+    const wrap = document.getElementById('pet-wrap');
+    wrap.style.transform = 'scale(0)';
+    wrap.style.opacity = '0';
+    petState.hidden = true;
+    setTimeout(() => { 
+      emoji.textContent = '🐼'; 
+      wrap.style.transform = 'scale(1)';
+      wrap.style.opacity = '1';
+      petState.hidden = false;
+      body.classList.add('pet-idle');
+    }, 5000);
+  }
+  
+  bubble.textContent = getPetMsg(type);
+  bubble.style.opacity = '1';
+  setTimeout(() => { bubble.style.opacity = '0'; }, 2500);
+}
+
+// 右键/长按菜单
+document.addEventListener('DOMContentLoaded', function() {
+  const wrap = document.getElementById('pet-wrap');
+  if (!wrap) return;
+  
+  // 右键菜单
+  wrap.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    document.getElementById('pet-menu')?.classList.toggle('show');
+  });
+  
+  // 拖拽
+  let isDragging = false, startX, startY, origX, origY;
+  wrap.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = wrap.getBoundingClientRect();
+    origX = rect.left;
+    origY = rect.top;
+    wrap.style.cursor = 'grabbing';
+    wrap.style.transition = 'none';
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    wrap.style.left = (origX + dx) + 'px';
+    wrap.style.top = (origY + dy) + 'px';
+    wrap.style.right = 'auto';
+    wrap.style.bottom = 'auto';
+  });
+  document.addEventListener('mouseup', function() {
+    if (!isDragging) return;
+    isDragging = false;
+    wrap.style.cursor = 'grab';
+    wrap.style.transition = '';
+    // 超出边缘自动纠正
+    const rect = wrap.getBoundingClientRect();
+    const ww = window.innerWidth, wh = window.innerHeight;
+    if (rect.right > ww - 10) wrap.style.right = '12px';
+    if (rect.left < 10) wrap.style.left = '12px';
+    if (rect.top < 10) wrap.style.top = '80px';
+    if (rect.bottom > wh - 10) wrap.style.bottom = '80px';
+    if (rect.left < 10 || rect.right > ww - 10) {
+      wrap.style.left = '';
+      wrap.style.top = '';
+      wrap.style.right = '12px';
+      wrap.style.bottom = '80px';
+    }
+    wrap.style.cursor = 'grab';
+  });
+  
+  // 触屏拖拽
+  wrap.addEventListener('touchstart', function(e) {
+    const t = e.touches[0];
+    isDragging = true;
+    startX = t.clientX;
+    startY = t.clientY;
+    const rect = wrap.getBoundingClientRect();
+    origX = rect.left;
+    origY = rect.top;
+    wrap.style.transition = 'none';
+  }, {passive: true});
+  wrap.addEventListener('touchmove', function(e) {
+    if (!isDragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    wrap.style.left = (origX + dx) + 'px';
+    wrap.style.top = (origY + dy) + 'px';
+    wrap.style.right = 'auto';
+    wrap.style.bottom = 'auto';
+  }, {passive: true});
+  wrap.addEventListener('touchend', function() {
+    isDragging = false;
+    wrap.style.transition = '';
+    const rect = wrap.getBoundingClientRect();
+    const ww = window.innerWidth;
+    if (rect.left < 10 || rect.right > ww - 10) {
+      wrap.style.left = '';
+      wrap.style.top = '';
+      wrap.style.right = '12px';
+      wrap.style.bottom = '80px';
+    }
+  }, {passive: true});
+  
+  // 定时自动消息
+  setInterval(() => {
+    if (petState.hidden) return;
+    const bubble = document.getElementById('pet-bubble');
+    bubble.textContent = getPetMsg('auto');
+    bubble.style.opacity = '1';
+    setTimeout(() => { bubble.style.opacity = '0'; }, 3000);
+  }, 30000);
+});
+
+// 更新桌宠光晕（根据最新情绪）
+function updatePetGlow(moodScore) {
+  const body = document.getElementById('pet-body');
+  if (!body) return;
+  body.className = 'pet-body pet-idle';
+  if (moodScore >= 8) body.classList.add('pet-glow-gold');
+  else if (moodScore >= 6) body.classList.add('pet-glow-green');
+  else if (moodScore >= 4) body.classList.add('pet-glow-blue');
+  else if (moodScore >= 2) body.classList.add('pet-glow-purple');
+  else body.classList.add('pet-glow-gray');
+}
+// 在 loadFlame 和 loadDashboard 中集成光晕
+// 重写原 loadFlame 的最后部分来触发光晕更新
+
 // --- 自动加载 ---
 setTimeout(loadDashboard, 1000);
 setTimeout(loadFlame, 1500);
-</script></script>
+</script>
 </body>
 </html>"""
 
