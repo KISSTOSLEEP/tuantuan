@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: tuantuan-emotion-outlet
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: COZE_WORKLOAD_IDENTITY_API_KEY
+        sync: false
+      - key: COZE_INTEGRATION_MODEL_BASE_URL
+        sync: false
+      - key: COZE_SUPABASE_URL
+        sync: false
+      - key: COZE_SUPABASE_KEY
+        sync: false
