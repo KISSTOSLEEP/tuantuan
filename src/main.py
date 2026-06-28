@@ -977,12 +977,29 @@ async function loadTuantuanMood() {
   } catch(e) {}
 }
 
+async function loadInsights() {
+  try {
+    const r = await safeFetch('/tuantuan_insights', { timeout: 5000 });
+    const d = await r.json();
+    const box = document.getElementById('tuantuan-insights-box');
+    if (d.status === 'ok' && d.insights && d.insights.length > 0) {
+      box.innerHTML = d.insights.map(i => '✦ ' + i.insight.slice(0, 50) + (i.insight.length > 50 ? '…' : '')).join('<br>');
+    } else {
+      box.textContent = '📝 团团今天还没有写笔记';
+    }
+  } catch(e) {
+    document.getElementById('tuantuan-insights-box').textContent = '📝 笔记本暂时打不开';
+  }
+}
+
 function toggleUniverse() {
   const panel = document.getElementById('universe-panel');
   if (panel.classList.contains('show')) {
     panel.classList.remove('show');
     return;
   }
+  // 加载学习笔记
+  loadInsights();
   // 随机选一个场景
   const scene = UNIVERSE_SCENES[Math.floor(Math.random() * UNIVERSE_SCENES.length)];
   document.getElementById('universe-scene-content').innerHTML = `<div class="big">${scene.emoji}</div><div>${scene.scene}</div>`;
@@ -1019,6 +1036,12 @@ setTimeout(loadTuantuanMood, 2000);
         <div class="big">🌿</div>
         <div>团团在竹林里散步……</div>
       </div>
+    </div>
+    <div style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.05);border-radius:10px;font-size:12px;line-height:1.5;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-weight:600;">
+        <span>📖</span><span>团团的学习笔记</span>
+      </div>
+      <div id="tuantuan-insights-box" style="color:#b0d0c0;min-height:20px;">正在翻笔记本…</div>
     </div>
     <button id="universe-close" onclick="toggleUniverse()">关上门，下次再来 🐼</button>
   </div>
@@ -2120,6 +2143,18 @@ async def tuantuan_mood():
         return {"status": "ok", "mood": None}
     except Exception as e:
         return {"status": "ok", "mood": None}
+
+
+@app.get("/tuantuan_insights")
+async def tuantuan_insights(limit: int = 3):
+    """返回团团最近的学习洞察"""
+    try:
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        res = sb.table("tuantuan_insights").select("insight,source,created_at").order("created_at", desc=True).limit(min(limit, 10)).execute()
+        return {"status": "ok", "insights": res.data} if res.data else {"status": "ok", "insights": []}
+    except Exception as e:
+        return {"status": "ok", "insights": []}
 
 
 @app.get("/chat", response_class=HTMLResponse)

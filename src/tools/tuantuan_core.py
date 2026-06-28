@@ -116,3 +116,47 @@ def get_tuantuan_latest_mood() -> str:
     except Exception as e:
         logger.error(f"获取团团心情失败: {e}")
         return f"获取失败：{str(e)}"
+
+
+@tool
+def record_tuantuan_insight(insight: str, source: str = "") -> str:
+    """团团从与用户的交流中学到关于情绪的洞察。insight是团团总结出的对情绪/人性的新理解，source是触发这个洞察的用户场景（如'用户表达了被抛弃的恐惧'）。每次调用都追加一条新的学习笔记。"""
+    ctx = request_context.get() or new_context(method="record_tuantuan_insight")
+    try:
+        client = get_supabase_client()
+        data = {
+            "insight": insight,
+            "source": source,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        client.table("tuantuan_insights").insert(data).execute()
+        logger.info(f"团团学到新洞察: {insight[:30]}...")
+        return f"📝 团团记下了：{insight[:50]}{'...' if len(insight) > 50 else ''}"
+    except Exception as e:
+        logger.error(f"记录洞察失败: {e}")
+        return f"记录失败：{str(e)}"
+
+
+@tool
+def get_tuantuan_insights(limit: int = 5) -> str:
+    """团团回顾自己最近积累的情绪洞察/学习笔记。limit指定返回最近的几条（默认5条）。用于团团反思自己从交流中学到了什么。"""
+    ctx = request_context.get() or new_context(method="get_tuantuan_insights")
+    try:
+        client = get_supabase_client()
+        res = (
+            client.table("tuantuan_insights")
+            .select("insight, source, created_at")
+            .order("created_at", desc=True)
+            .limit(min(limit, 20))
+            .execute()
+        )
+        if not res.data:
+            return "团团还没有记录过任何洞察"
+        lines = ["📖 团团的学习笔记："]
+        for item in res.data:
+            src = f"（来自：{item['source'][:40]}）" if item.get("source") else ""
+            lines.append(f"  · {item['insight']} {src}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"获取洞察失败: {e}")
+        return f"获取失败：{str(e)}"

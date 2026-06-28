@@ -32,7 +32,7 @@ from tools.mood_chart_tool import generate_mood_trend_chart, generate_mood_calen
 from tools.voice_companion_tool import voice_companion
 from tools.notification_service import register_push_schedule, list_my_schedules, cancel_push_schedule, check_my_patterns
 from tools.panda_mascot import get_panda_message, generate_mood_garden
-from tools.tuantuan_core import record_tuantuan_mood, save_user_trait, get_user_traits, get_tuantuan_latest_mood
+from tools.tuantuan_core import record_tuantuan_mood, save_user_trait, get_user_traits, get_tuantuan_latest_mood, record_tuantuan_insight, get_tuantuan_insights
 
 LLM_CONFIG = "config/agent_llm_config.json"
 
@@ -112,6 +112,8 @@ def build_agent(ctx=None):
         save_user_trait,
         get_user_traits,
         get_tuantuan_latest_mood,
+        record_tuantuan_insight,
+        get_tuantuan_insights,
     ]
 
     return create_agent(
