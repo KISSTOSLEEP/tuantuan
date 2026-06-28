@@ -12,6 +12,7 @@ import uvicorn
 import time
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
@@ -1107,6 +1108,15 @@ async def lifespan(app: FastAPI):
         await async_runtime.shutdown()
 
 app = FastAPI(lifespan=lifespan)
+
+# CORS - 允许跨域访问（Coze代理/公网域名/本地开发）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # OpenAI 兼容接口处理器
 openai_handler = OpenAIChatHandler(service)
