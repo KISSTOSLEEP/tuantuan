@@ -227,6 +227,42 @@ html, body {
 .pet-glow-gold{box-shadow:0 0 16px rgba(255,165,0,0.3);}
 /* 气泡 */
 .pet-bubble{position:absolute;bottom:62px;right:6px;background:#fff;border-radius:12px;padding:6px 10px;font-size:12px;color:#3d3229;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.08);opacity:0;pointer-events:none;transition:0.2s;max-width:140px;overflow:hidden;text-overflow:ellipsis;}
+
+/* ===== 团团动态动画系统 ===== */
+/* 呼吸待机 */
+.panda-breathe{animation:pandaBreathe 3s ease-in-out infinite;}
+@keyframes pandaBreathe{0%,100%{transform:scale(1);}50%{transform:scale(1.08);}}
+/* 说话抖动 */
+.panda-talk{animation:pandaTalk 0.3s ease infinite;}
+@keyframes pandaTalk{0%,100%{transform:scale(1) rotate(0deg);}25%{transform:scale(1.04) rotate(-2deg);}75%{transform:scale(1.04) rotate(2deg);}}
+/* 开心蹦跳 */
+.panda-happy{animation:pandaHappy 0.5s ease;}
+@keyframes pandaHappy{0%{transform:scale(1) translateY(0);}30%{transform:scale(1.15) translateY(-6px);}60%{transform:scale(1.08) translateY(-3px);}100%{transform:scale(1) translateY(0);}}
+/* 难过低落 */
+.panda-sad{animation:pandaSad 1s ease;}
+@keyframes pandaSad{0%,100%{transform:translateY(0);}30%{transform:translateY(3px) scale(0.95);}60%{transform:translateY(5px) scale(0.92);}}
+/* 思考 */
+.panda-think{animation:pandaThink 0.8s ease;}
+@keyframes pandaThink{0%,100%{transform:rotate(0deg);}25%{transform:rotate(-8deg);}50%{transform:rotate(-15deg);}75%{transform:rotate(-8deg);}}
+/* 兴奋转圈 */
+.panda-excited{animation:pandaExcited 0.6s ease;}
+@keyframes pandaExcited{0%{transform:scale(1) rotate(0deg);}25%{transform:scale(1.2) rotate(-10deg);}50%{transform:scale(1.3) rotate(10deg);}75%{transform:scale(1.15) rotate(-5deg);}100%{transform:scale(1) rotate(0deg);}}
+/* 爱心 */
+.panda-love{animation:pandaLove 0.8s ease;}
+@keyframes pandaLove{0%{transform:scale(1);}20%{transform:scale(1.2);}40%{transform:scale(0.95);}60%{transform:scale(1.1);}80%{transform:scale(1.05);}100%{transform:scale(1);}}
+/* 困惑歪头 */
+.panda-confused{animation:pandaConfused 0.5s ease;}
+@keyframes pandaConfused{0%,100%{transform:rotate(0deg);}25%{transform:rotate(-12deg);}50%{transform:rotate(12deg);}75%{transform:rotate(-6deg);}}
+/* 犯困 */
+.panda-sleepy{animation:pandaSleepy 2s ease infinite;}
+@keyframes pandaSleepy{0%,100%{transform:scale(1);}30%{transform:scale(0.95) translateY(2px);}60%{transform:scale(0.98) translateY(0);}}
+/* 得意 */
+.panda-proud{animation:pandaProud 0.5s ease;}
+@keyframes pandaProud{0%{transform:scale(1) translateY(0);}30%{transform:scale(1.1) translateY(-4px) rotate(5deg);}60%{transform:scale(1.05) translateY(-2px);}100%{transform:scale(1) translateY(0);}}
+/* 团团圆圈特效 */
+@keyframes sparklePop{0%{transform:scale(0);opacity:1;}100%{transform:scale(1.5);opacity:0;}}
+
+.panda-avatar{font-size:28px;line-height:1;flex-shrink:0;display:inline-block;transition:transform 0.15s;}
 .pet-bubble::after{content:'';position:absolute;bottom:-4px;right:18px;width:8px;height:8px;background:#fff;transform:rotate(45deg);box-shadow:2px 2px 4px rgba(0,0,0,0.04);}
 .pet-wrap:hover .pet-bubble{opacity:1;bottom:66px;}
 /* 操作菜单 */
@@ -546,6 +582,96 @@ function addMsg(text, role) {
   area.appendChild(d);
   area.scrollTop = area.scrollHeight;
 }
+
+// --- 团团动态肢体语言 ---
+const PANDA_EMOJIS = {
+  happy: ['🐼✨','🎉🐼','🐼💫'],
+  sad: ['🐼💔','🐼🥺','🐼💧'],
+  think: ['🤔🐼','🐼🧠','🐼🎋'],
+  excited: ['🎊🐼','🐼🔥','🐼🌟'],
+  love: ['🐼🥰','🐼💕','🐼🌷'],
+  confused: ['🐼❓','😵🐼','🐼🤷'],
+  sleepy: ['😴🐼','🐼💤','🐼🌙'],
+  proud: ['🐼😎','🐼🏆','🐼✨'],
+  annoyed: ['🐼😤','🐼💢','🐼🚶'],
+  neutral: ['🐼','🐼🍃','🐼☀️'],
+};
+
+function getPandaMood(text) {
+  const t = text.toLowerCase();
+  // 开心/积极
+  if (/开心|哈哈|太好|超棒|喜欢|快乐|幸福|好诶|耶|嘻嘻|可爱|温暖|感动|谢谢|加油|值得/t.test(t)) return 'happy';
+  // 难过/低落
+  if (/难过|伤心|哭|难受|辛苦|累了|疲惫|走不出来|好痛|心疼|抱抱|🫂|遗憾/t.test(t)) return 'sad';
+  // 思考/深沉
+  if (/也许|可能|我觉得|不知道|为什么|想过|想过|理解|懂了|明白|原来是|有意思/t.test(t)) return 'think';
+  // 兴奋/激动
+  if (/太棒|真的吗|哇|厉害|超|太..了|燃|冲|一定要|相信我|可以的|就是现在/t.test(t)) return 'excited';
+  // 温暖/爱意
+  if (/爱|喜欢|想你|陪着|一直|在乎|重要|珍惜|永远|不管怎样|在呢/t.test(t)) return 'love';
+  // 困惑
+  if (/什么|哈|嗯？|奇怪|不懂|啥|真的假的|啊？/t.test(t)) return 'confused';
+  // 困/懒
+  if (/困了|睡了|晚安|休息|累|lazy|躺着|瘫/t.test(t)) return 'sleepy';
+  // 得意
+  if (/当然|不是我吹|我可是|团团我|厉害吧|有我在|交给我/t.test(t)) return 'proud';
+  // 生气/不耐烦
+  if (/烦|走开|不理|生气|哼|够了|别说了/t.test(t)) return 'annoyed';
+  return 'neutral';
+}
+
+function animatePanda(text) {
+  const avatar = document.getElementById('panda-avatar');
+  const petEmoji = document.getElementById('pet-emoji');
+  if (!avatar) return;
+
+  const mood = getPandaMood(text);
+  const emojis = PANDA_EMOJIS[mood] || PANDA_EMOJIS.neutral;
+
+  // Clear previous animation classes
+  avatar.className = 'panda-avatar';
+  // Add the new animation class
+  avatar.classList.add('panda-'+mood);
+
+  // 随机切换表情
+  const newEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+  avatar.textContent = newEmoji;
+
+  // 宠物也同步反应
+  if (petEmoji) {
+    petEmoji.style.transition = 'transform 0.3s';
+    petEmoji.style.transform = 'scale(1.3)';
+    setTimeout(() => { petEmoji.style.transform = 'scale(1)'; }, 300);
+  }
+
+  // 自动回到待机呼吸
+  setTimeout(() => {
+    avatar.className = 'panda-avatar panda-breathe';
+    // 渐回默认表情
+    const defaults = {happy:'🐼✨',sad:'🐼',think:'🐼🎋',excited:'🐼',love:'🐼🥰',confused:'🐼',sleepy:'😴🐼',proud:'🐼😎',annoyed:'🐼',neutral:'🐼'};
+    avatar.textContent = defaults[mood] || '🐼';
+  }, 2000);
+}
+
+// 给宠物也加上即时反馈
+function petReact(emotion) {
+  const emoji = document.getElementById('pet-emoji');
+  if (!emoji) return;
+  const reacts = {
+    happy: ['🎉','🌸','🌟','✨'],
+    sad: ['💧','🥺','🫂'],
+    love: ['💕','🌷','🥰'],
+    excited: ['🔥','🎊','💫'],
+    think: ['🤔','🎋','🧠'],
+    sleepy: ['💤','🌙','😴'],
+    neutral: ['🍃','☀️','🐼'],
+  };
+  const opts = reacts[emotion] || reacts.neutral;
+  const old = emoji.textContent;
+  emoji.textContent = opts[Math.floor(Math.random() * opts.length)];
+  setTimeout(() => { emoji.textContent = old; }, 2000);
+}
+
 function sendMsg() {
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
@@ -558,6 +684,7 @@ function sendMsg() {
     .then(r=>r.json()).then(d=>{
       const reply = d.output || '…';
       addMsg(reply, 'bot');
+      animatePanda(reply);
       loadDashboard();
       loadFlame();
       // 发送后重新聚焦输入框（手机端快速连续输入）
