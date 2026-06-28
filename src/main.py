@@ -432,8 +432,34 @@ html, body {
 
 <script>
 const SESSION_KEY = 'eos_session';
-let sessionId = localStorage.getItem(SESSION_KEY);
-if (!sessionId) { sessionId = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); localStorage.setItem(SESSION_KEY, sessionId); }
+let sessionId = safeGet(SESSION_KEY, '');
+
+// --- 安全工具函数 ---
+// 带重试+超时的fetch
+async function safeFetch(url, options, retries) {
+  if (retries === undefined) retries = 2;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(function() { c.abort(); }, 15000);
+      var opts = options || {};
+      opts.signal = c.signal;
+      const r = await fetch(url, opts);
+      clearTimeout(t);
+      if (!r.ok && i < retries) { await new Promise(function(rr) { setTimeout(rr, (i+1)*1000); }); continue; }
+      return r;
+    } catch(e) {
+      if (i >= retries) throw e;
+      await new Promise(function(rr) { setTimeout(rr, (i+1)*1000); });
+    }
+  }
+}
+function safeGet(k, d) { try { var v = localStorage.getItem(k); return v !== null ? v : d; } catch(e) { return d; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); return true; } catch(e) { return false; } }
+function safeJSON(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } }
+function safeJSONSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e) { return false; } }
+
+if (!sessionId) { sessionId = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); safeSet(SESSION_KEY, sessionId); }
 const SETTINGS_KEY = 'eos_settings';
 let isSending = false;
 
@@ -457,7 +483,7 @@ function addMsg(text, role) {
   const area = document.getElementById('chat-area');
   const d = document.createElement('div');
   d.className = 'msg ' + role;
-  const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  const s = safeJSON(SETTINGS_KEY, {});
   const avatar = s.avatar || '🐼';
   const pname = s.pandaName || '团团';
   const colors = window._bc || {user:'#6b8e6b',bot:'#fff'};
@@ -475,7 +501,7 @@ function sendMsg() {
   isSending = true;
   addMsg(text, 'user');
   document.querySelector('.input-area button').textContent = '…';
-  fetch('/chat_api', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,session_id:sessionId})})
+  safeFetch('/chat_api', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,session_id:sessionId})})
     .then(r=>r.json()).then(d=>{
       const reply = d.output || '…';
       addMsg(reply, 'bot');
@@ -491,7 +517,7 @@ function logMood(score) {
   const emojis = {9:'😊',7:'🙂',5:'😐',3:'😢',1:'😤'};
   const emoji = emojis[score] || '😐';
   addMsg('今天心情：'+emoji, 'user');
-  fetch('/log_mood',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,mood_score:score,note:'心情点选'})})
+  safeFetch('/log_mood',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,mood_score:score,note:'心情点选'})})
     .then(r=>r.json()).then(d=>{
       const replies = {9:'好心情值得被记住 🧡',7:'还不错嘛~',5:'平平淡淡也是真',3:'抱抱你 🫂',1:'我在呢 🫂'};
       addMsg(replies[score]||'收到啦','bot');
@@ -505,7 +531,7 @@ function logMood(score) {
 }
 // --- 仪表盘 ---
 function loadDashboard() {
-  fetch('/dashboard?session_id='+sessionId).then(r=>r.json()).then(d=>{
+  safeFetch('/dashboard?session_id='+sessionId).then(r=>r.json()).then(d=>{
     document.getElementById('streak-num').textContent = d.streak_days || 0;
     document.getElementById('index-num').textContent = d.exit_index || 0;
     document.getElementById('garden-display').textContent = d.garden || '🌱';
@@ -541,7 +567,7 @@ function openPanel(){document.getElementById('panel-overlay').classList.add('sho
 function closePanel(e){if(!e||e.target===e.currentTarget)document.getElementById('panel-overlay').classList.remove('show');}
 // --- 设置 ---
 function loadSettings(){
-  const s=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');
+  const s=safeJSON(SETTINGS_KEY, {});
   if(s.avatar)document.getElementById('panda-avatar').textContent=s.avatar;
   document.querySelectorAll('.av-opt').forEach(el=>{if(el.dataset.avatar===(s.avatar||'🐼'))el.classList.add('active');});
   document.getElementById('panda-name-input').value=s.pandaName||'团团';
@@ -552,7 +578,7 @@ function loadSettings(){
 }
 function saveSettings(){
   const s={avatar:document.querySelector('.av-opt.active')?.dataset.avatar||'🐼',pandaName:document.getElementById('panda-name-input').value||'团团',bg:document.querySelector('.bg-opt.active')?.dataset.bg||'default',bubble:document.querySelector('.bp-opt.active')?.dataset.bubble||'green'};
-  localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));
+  safeJSONSet(SETTINGS_KEY, s);
   document.getElementById('panda-avatar').textContent=s.avatar;
   document.getElementById('panda-status').textContent=s.pandaName+'陪你';
   applyBg(s.bg);applyBubble(s.bubble);
@@ -569,7 +595,7 @@ function applyBubble(bubble){
 }
 function openSettings(){document.getElementById('settings-overlay').classList.add('show');}
 function closeSettings(e){if(!e||e.target===e.currentTarget)document.getElementById('settings-overlay').classList.remove('show');}
-function resetSettings(){localStorage.removeItem(SETTINGS_KEY);loadSettings();saveSettings();}
+function resetSettings(){try{localStorage.removeItem(SETTINGS_KEY)}catch(e){};loadSettings();saveSettings();}
 document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('.av-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.av-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
   document.querySelectorAll('.bg-opt').forEach(el=>el.addEventListener('click',function(){document.querySelectorAll('.bg-opt').forEach(e=>e.classList.remove('active'));this.classList.add('active');saveSettings();}));
@@ -578,7 +604,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 function loadFlame() {
-  fetch('/flame?session_id='+sessionId).then(r=>r.json()).then(d=>{
+  safeFetch('/flame?session_id='+sessionId).then(r=>r.json()).then(d=>{
     const el = document.getElementById('flame-emoji');
     const nm = document.getElementById('flame-name');
     const st = document.getElementById('flame-streak');
@@ -830,13 +856,13 @@ function updatePetGlow(moodScore) {
 // --- 每日任务 ---
 async function loadMissions() {
   try {
-    const res = await fetch('/missions');
+    const res = await safeFetch('/missions');
     const d = await res.json();
     const list = document.getElementById('mission-list');
     if (!list) return;
     // 读取今天的完成状态
     const doneKey = 'eos_mission_' + d.date;
-    const done = JSON.parse(localStorage.getItem(doneKey) || '[]');
+    const done = safeJSON(doneKey, []);
     const badge = document.getElementById('mission-badge');
     
     list.innerHTML = d.missions.map((m, i) => {
@@ -852,13 +878,13 @@ async function loadMissions() {
 
 function toggleMission(idx) {
   // 先获取今天的任务日期
-  fetch('/missions').then(r => r.json()).then(d => {
+  safeFetch('/missions').then(r => r.json()).then(d => {
     const doneKey = 'eos_mission_' + d.date;
-    const done = JSON.parse(localStorage.getItem(doneKey) || '[]');
+    const done = safeJSON(doneKey, []);
     const i = done.indexOf(idx);
     if (i >= 0) done.splice(i, 1);
     else done.push(idx);
-    localStorage.setItem(doneKey, JSON.stringify(done));
+    safeJSONSet(doneKey, done);
     loadMissions();
     loadDashboard();
     // 全部完成时弹个小庆祝
@@ -876,6 +902,8 @@ setTimeout(loadFlame, 1500);
 <!-- 火焰进化全屏特效 -->
 <div id="evolution-overlay"></div>
 
+
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("/sw.js").catch(function(){})}</script>
 </body>
 </html>"""
 
@@ -1212,6 +1240,13 @@ async def panda_icon():
       <text x="96" y="124" font-size="100" text-anchor="middle">🐼</text>
     </svg>'''
     return Response(content=svg, media_type="image/svg+xml")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    from fastapi.responses import Response
+    js = "self.addEventListener('install',function(e){self.skipWaiting()});self.addEventListener('activate',function(e){e.waitUntil(clients.claim())});self.addEventListener('fetch',function(e){e.respondWith(fetch(e.request).catch(function(){return new Response('离线',{status:503})}))})"
+    return Response(content=js, media_type="application/javascript")
 
 @app.get("/task/{task_id}")
 async def http_get_task(task_id: str) -> dict:
