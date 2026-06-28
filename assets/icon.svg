@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 背景 -->
+  <circle cx="256" cy="256" r="248" fill="#FFF8F0" stroke="#2D2D2D" stroke-width="8"/>
+  <!-- 熊猫身体 -->
+  <ellipse cx="256" cy="290" rx="80" ry="70" fill="#2D2D2D"/>
+  <!-- 肚子 -->
+  <ellipse cx="256" cy="295" rx="45" ry="45" fill="#FFF8F0"/>
+  <!-- 头部 -->
+  <circle cx="256" cy="190" r="90" fill="white" stroke="#2D2D2D" stroke-width="6"/>
+  <!-- 左耳 -->
+  <circle cx="195" cy="125" r="30" fill="#2D2D2D"/>
+  <!-- 右耳 -->
+  <circle cx="317" cy="125" r="30" fill="#2D2D2D"/>
+  <!-- 左眼圈 -->
+  <ellipse cx="225" cy="185" rx="22" ry="25" fill="#2D2D2D"/>
+  <!-- 右眼圈 -->
+  <ellipse cx="287" cy="185" rx="22" ry="25" fill="#2D2D2D"/>
+  <!-- 左眼珠 -->
+  <circle cx="227" cy="183" r="8" fill="white"/>
+  <circle cx="229" cy="181" r="3" fill="#2D2D2D"/>
+  <!-- 右眼珠 -->
+  <circle cx="289" cy="183" r="8" fill="white"/>
+  <circle cx="291" cy="181" r="3" fill="#2D2D2D"/>
+  <!-- 鼻子 -->
+  <ellipse cx="256" cy="205" rx="8" ry="5" fill="#2D2D2D"/>
+  <!-- 微笑 -->
+  <path d="M 240 218 Q 256 232 272 218" fill="none" stroke="#2D2D2D" stroke-width="3" stroke-linecap="round"/>
+  <!-- 左胳膊 -->
+  <ellipse cx="185" cy="290" rx="20" ry="35" fill="#2D2D2D" transform="rotate(20, 185, 290)"/>
+  <!-- 右胳膊 -->
+  <ellipse cx="327" cy="290" rx="20" ry="35" fill="#2D2D2D" transform="rotate(-20, 327, 290)"/>
+  <!-- 左腿 -->
+  <ellipse cx="220" cy="355" rx="20" ry="15" fill="#2D2D2D"/>
+  <!-- 右腿 -->
+  <ellipse cx="292" cy="355" rx="20" ry="15" fill="#2D2D2D"/>
+  <!-- 竹子 -->
+  <rect x="310" y="240" width="8" height="100" rx="4" fill="#4CAF50" transform="rotate(-15, 310, 240)"/>
+  <rect x="315" y="245" width="6" height="30" rx="3" fill="#66BB6A" transform="rotate(-15, 315, 245)"/>
+  <rect x="315" y="280" width="6" height="25" rx="3" fill="#66BB6A" transform="rotate(-15, 315, 280)"/>
+  <!-- 竹叶 -->
+  <ellipse cx="318" cy="238" rx="20" ry="6" fill="#43A047" transform="rotate(-40, 318, 238)"/>
+  <ellipse cx="325" cy="232" rx="15" ry="5" fill="#66BB6A" transform="rotate(-60, 325, 232)"/>
+  <!-- 脸颊红晕 -->
+  <ellipse cx="210" cy="195" rx="12" ry="6" fill="#FFB5B5" opacity="0.5"/>
+  <ellipse cx="302" cy="195" rx="12" ry="6" fill="#FFB5B5" opacity="0.5"/>
+</svg>

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=情绪出口 · 团团
+Comment=一个会成长的情绪陪伴熊猫
+Exec=bash -c "cd $(dirname %k)/../ && python3 src/main.py -p 5000 && xdg-open http://localhost:5000/chat"
+Icon=$(dirname %k)/../assets/icon.svg
+Terminal=false
+Type=Application
+Categories=Utility;Education;
+StartupNotify=true
