@@ -62,7 +62,8 @@ FRONTEND_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>情绪出口</title>
+<title>情绪出口 · 团团</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
 /* ===== Reset & Base ===== */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -76,6 +77,9 @@ html, body {
 .header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top, 0px));background:#fff;border-bottom:1px solid #f0ebe5;flex-shrink:0;}
 .header-left{display:flex;align-items:center;gap:8px;min-width:0;}
 .panda-avatar{font-size:28px;line-height:1;flex-shrink:0;}
+/* 3D熊猫容器 */
+#panda-3d-container{width:48px;height:48px;flex-shrink:0;cursor:pointer;position:relative;}
+#panda-3d-container canvas{width:100%!important;height:100%!important;}
 .header-title{font-size:15px;font-weight:600;letter-spacing:0.5px;}
 .header-sub{font-size:11px;color:#b8a89a;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;}
 .header-right{display:flex;gap:4px;flex-shrink:0;}
@@ -342,6 +346,42 @@ html, body {
 .season-autumn { background: #fbe9e7; color: #d84315; }
 .season-winter { background: #e3f2fd; color: #1565c0; }
 
+/* ===== 3D自定义面板 ===== */
+#avatar-custom-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:2000;justify-content:center;align-items:center;}
+#avatar-custom-panel.show{display:flex;}
+.avatar-custom-card{background:#fff;border-radius:20px;padding:20px;max-width:380px;width:92%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:fadeIn 0.25s ease;}
+.avatar-custom-card h3{font-size:17px;margin-bottom:16px;display:flex;align-items:center;gap:8px;color:#3d3229;}
+.custom-section{margin-bottom:14px;}
+.custom-section label{display:block;font-size:12px;font-weight:600;color:#8b7a6a;margin-bottom:6px;}
+.color-options{display:flex;gap:6px;flex-wrap:wrap;}
+.color-swatch{width:34px;height:34px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:0.12s;}
+.color-swatch.active{border-color:#6b8e6b;transform:scale(1.15);box-shadow:0 0 0 2px #6b8e6b;}
+.color-swatch:active{transform:scale(0.92);}
+.acc-options{display:flex;gap:6px;flex-wrap:wrap;}
+.acc-opt{padding:8px 14px;border-radius:12px;border:2px solid #ece6df;cursor:pointer;font-size:13px;transition:0.12s;background:#fff;color:#3d3229;}
+.acc-opt.active{border-color:#6b8e6b;background:#e8f5e9;}
+.acc-opt:active{transform:scale(0.95);}
+.scene-options{display:flex;gap:6px;}
+.scene-opt{flex:1;padding:10px 8px;border-radius:12px;border:2px solid #ece6df;cursor:pointer;text-align:center;font-size:12px;transition:0.12s;background:#fff;color:#555;}
+.scene-opt.active{border-color:#6b8e6b;background:#e8f5e9;}
+.scene-opt:active{transform:scale(0.95);}
+.voice-options{display:flex;gap:6px;flex-wrap:wrap;}
+.voice-opt{padding:7px 12px;border-radius:10px;border:2px solid #ece6df;cursor:pointer;font-size:12px;transition:0.12s;background:#fff;color:#555;text-align:center;}
+.voice-opt.active{border-color:#6b8e6b;background:#e8f5e9;}
+.voice-opt:active{transform:scale(0.95);}
+.custom-actions{display:flex;gap:8px;margin-top:12px;}
+.custom-actions button{flex:1;padding:10px;border-radius:12px;border:none;font-size:13px;cursor:pointer;transition:0.12s;}
+.custom-actions .btn-primary{background:#6b8e6b;color:#fff;}
+.custom-actions .btn-primary:active{transform:scale(0.96);background:#5a7d5a;}
+.custom-actions .btn-secondary{background:#f0ebe5;color:#555;}
+.custom-actions .btn-secondary:active{transform:scale(0.96);}
+/* 语音按钮 */
+#voice-toggle{background:none;border:none;font-size:16px;cursor:pointer;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:0.12s;color:#b8a89a;}
+#voice-toggle:active{background:#f0ebe5;transform:scale(0.92);}
+#voice-toggle.on{color:#6b8e6b;}
+#voice-toggle.playing{animation:voicePulse 0.6s ease infinite;color:#6b8e6b;}
+@keyframes voicePulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
+
 </style>
 <link rel="icon" href="/panda_icon.png" type="image/svg+xml">
 <link rel="manifest" href="/manifest.json">
@@ -354,7 +394,7 @@ html, body {
 <body>
 <div class="header">
   <div class="header-left">
-    <div class="panda-avatar" id="panda-avatar">🐼</div>
+    <div id="panda-3d-container"></div>
     <div>
       <div class="header-title">情绪出口</div>
       <div class="header-sub" id="panda-status">团团陪你</div>
@@ -371,6 +411,8 @@ html, body {
       <span id="mood-mirror-label">平静</span>
     </div>
     <button class="icon-btn" onclick="toggleUniverse()" title="团团的小宇宙" id="universe-btn">🌳</button>
+    <button id="voice-toggle" onclick="toggleVoice()" title="语音开关" class="on">🔊</button>
+    <button class="icon-btn" onclick="openAvatarCustom()" title="装扮团团">🎨</button>
     <button class="icon-btn" onclick="openPanel()" title="查看数据">📊</button>
     <button class="icon-btn" onclick="openSettings()" title="个性化设置">⚙️</button>
   </div>
@@ -1150,7 +1192,251 @@ document.addEventListener('DOMContentLoaded', function() {
 setTimeout(loadDashboard, 1000);
 setTimeout(loadFlame, 1500);
 setTimeout(loadTuantuanMood, 2000);
+
+// ========== 3D熊猫初始化 ==========
+let panda3d = null;
+let voiceEnabled = true;
+let currentVoice = 'zh_female_xiaohe_uranus_bigtts';
+let currentSessionId = 'user_' + Math.random().toString(36).slice(2, 10);
+
+// 加载3D熊猫
+function initPanda3D() {
+  const container = document.getElementById('panda-3d-container');
+  if (!container || typeof Panda3D === 'undefined') {
+    // 如果引擎还没加载，延迟重试
+    setTimeout(initPanda3D, 500);
+    return;
+  }
+  try {
+    panda3d = new Panda3D(container, {
+      furColor: 0xffffff,
+      blushColor: 0xffaaaa,
+      accessory: 'none',
+      sceneBg: 'forest',
+    });
+    // 加载用户配置
+    loadAvatarConfig();
+  } catch(e) {
+    console.log('3D init:', e);
+  }
+}
+
+// 加载配置
+async function loadAvatarConfig() {
+  try {
+    const r = await fetch('/avatar_config?session_id=' + currentSessionId);
+    const d = await r.json();
+    if (d.status === 'ok' && d.config) {
+      applyAvatarConfig(d.config);
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// 应用形象配置
+function applyAvatarConfig(cfg) {
+  if (!panda3d) return;
+  if (cfg.furColor) panda3d.setFurColor(parseInt(cfg.furColor.replace('#',''), 16) || 0xffffff);
+  if (cfg.accessory) panda3d.setAccessory(cfg.accessory);
+  if (cfg.sceneBg) panda3d.setSceneBg(cfg.sceneBg);
+  if (cfg.voice) currentVoice = cfg.voice;
+  if (cfg.voiceEnabled !== undefined) voiceEnabled = cfg.voiceEnabled;
+  document.getElementById('voice-toggle').textContent = voiceEnabled ? '🔊' : '🔇';
+  document.getElementById('voice-toggle').className = voiceEnabled ? 'on' : '';
+}
+
+// 保存配置
+async function saveAvatarConfig(cfg) {
+  try {
+    await fetch('/avatar_config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: currentSessionId, config: cfg}),
+    });
+  } catch(e) { /* ignore */ }
+}
+
+// 切换语音
+function toggleVoice() {
+  voiceEnabled = !voiceEnabled;
+  document.getElementById('voice-toggle').textContent = voiceEnabled ? '🔊' : '🔇';
+  document.getElementById('voice-toggle').className = voiceEnabled ? 'on' : '';
+  // 保存语音偏好
+  const cfg = { voice: currentVoice, voiceEnabled: voiceEnabled };
+  saveAvatarConfig(cfg);
+}
+
+// 播放团团语音
+function playTuantuanVoice(text) {
+  if (!voiceEnabled || !text) return;
+  // 只对较短的回复播报
+  if (text.length > 200) text = text.slice(0, 200);
+  const btn = document.getElementById('voice-toggle');
+  btn.classList.add('playing');
+  
+  fetch('/tts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text: text, speaker: currentVoice}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status === 'ok' && d.audio_url) {
+      const audio = new Audio(d.audio_url);
+      audio.onended = () => btn.classList.remove('playing');
+      audio.onerror = () => btn.classList.remove('playing');
+      audio.play().catch(() => btn.classList.remove('playing'));
+      // 语音时熊猫说话
+      if (panda3d) panda3d.setEmotion('talking');
+      audio.onended = () => {
+        btn.classList.remove('playing');
+        if (panda3d) panda3d.setEmotion('idle');
+      };
+    } else {
+      btn.classList.remove('playing');
+    }
+  })
+  .catch(() => btn.classList.remove('playing'));
+}
+
+// 打开装扮面板
+function openAvatarCustom() {
+  document.getElementById('avatar-custom-panel').classList.add('show');
+}
+
+function closeAvatarCustom() {
+  document.getElementById('avatar-custom-panel').classList.remove('show');
+}
+
+// 选择毛色
+function selectFurColor(color) {
+  document.querySelectorAll('.color-swatch[data-target="fur"]').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.color-swatch[data-target="fur"][data-color="${color}"]`)?.classList.add('active');
+  if (panda3d) panda3d.setFurColor(parseInt(color.replace('#',''), 16));
+}
+
+// 选择配饰
+function selectAccessory(type) {
+  document.querySelectorAll('.acc-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.acc-opt[data-acc="${type}"]`)?.classList.add('active');
+  if (panda3d) panda3d.setAccessory(type);
+}
+
+// 选择场景
+function selectScene(type) {
+  document.querySelectorAll('.scene-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.scene-opt[data-scene="${type}"]`)?.classList.add('active');
+  if (panda3d) panda3d.setSceneBg(type);
+}
+
+// 选择声音
+function selectVoice(voice) {
+  document.querySelectorAll('.voice-opt').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.voice-opt[data-voice="${voice}"]`)?.classList.add('active');
+  currentVoice = voice;
+}
+
+// 保存装扮
+function saveAvatarCustom() {
+  const cfg = {
+    furColor: document.querySelector('.color-swatch[data-target="fur"].active')?.dataset.color || '#ffffff',
+    blushColor: '#ffaaaa',
+    accessory: document.querySelector('.acc-opt.active')?.dataset.acc || 'none',
+    sceneBg: document.querySelector('.scene-opt.active')?.dataset.scene || 'forest',
+    voice: currentVoice,
+    voiceEnabled: voiceEnabled,
+  };
+  saveAvatarConfig(cfg);
+  closeAvatarCustom();
+}
+
+// 覆盖原有的sendMsg以支持语音
+const _origSendMsg = window.sendMsg;
+if (_origSendMsg) {
+  const _sendWithVoice = function() {
+    const input = document.getElementById('chat-input');
+    const text = input?.value?.trim();
+    if (!text) return;
+    _origSendMsg();
+    // 语音会在消息返回时触发
+  };
+  window.sendMsg = _sendWithVoice;
+}
+
+// 拦截bot消息添加，触发语音
+const _origAddMsg = window.addMsg;
+if (_origAddMsg) {
+  window.addMsg = function(text, role) {
+    _origAddMsg(text, role);
+    if (role === 'bot' && text) {
+      setTimeout(() => playTuantuanVoice(text), 800);
+      if (panda3d) panda3d.setEmotion('happy');
+      setTimeout(() => { if (panda3d) panda3d.setEmotion('idle'); }, 2000);
+    }
+  };
+}
+
+// 启动3D
+document.addEventListener('DOMContentLoaded', function() {
+  // 加载3D引擎脚本
+  const script = document.createElement('script');
+  script.src = '/static/3d_panda_engine.js';
+  script.onload = initPanda3D;
+  document.head.appendChild(script);
+});
 </script>
+<!-- 装扮团团面板 -->
+<div id="avatar-custom-panel" onclick="closeAvatarCustom()">
+  <div class="avatar-custom-card" onclick="event.stopPropagation()">
+    <h3>🎨 装扮团团</h3>
+
+    <div class="custom-section">
+      <label>毛色</label>
+      <div class="color-options">
+        <div class="color-swatch active" data-target="fur" data-color="#ffffff" style="background:#ffffff;border:3px solid #ddd;" onclick="selectFurColor('#ffffff')"></div>
+        <div class="color-swatch" data-target="fur" data-color="#fff5e6" style="background:#fff5e6;" onclick="selectFurColor('#fff5e6')"></div>
+        <div class="color-swatch" data-target="fur" data-color="#fce4d6" style="background:#fce4d6;" onclick="selectFurColor('#fce4d6')"></div>
+        <div class="color-swatch" data-target="fur" data-color="#e8d5c4" style="background:#e8d5c4;" onclick="selectFurColor('#e8d5c4')"></div>
+        <div class="color-swatch" data-target="fur" data-color="#d4e8d0" style="background:#d4e8d0;" onclick="selectFurColor('#d4e8d0')"></div>
+        <div class="color-swatch" data-target="fur" data-color="#f0e0d0" style="background:#f0e0d0;" onclick="selectFurColor('#f0e0d0')"></div>
+      </div>
+    </div>
+
+    <div class="custom-section">
+      <label>配饰</label>
+      <div class="acc-options">
+        <div class="acc-opt active" data-acc="none" onclick="selectAccessory('none')">无</div>
+        <div class="acc-opt" data-acc="bow" onclick="selectAccessory('bow')">🎀 蝴蝶结</div>
+        <div class="acc-opt" data-acc="scarf" onclick="selectAccessory('scarf')">🧣 围巾</div>
+        <div class="acc-opt" data-acc="bamboo" onclick="selectAccessory('bamboo')">🎋 竹子</div>
+      </div>
+    </div>
+
+    <div class="custom-section">
+      <label>场景</label>
+      <div class="scene-options">
+        <div class="scene-opt active" data-scene="forest" onclick="selectScene('forest')">🌲 竹林</div>
+        <div class="scene-opt" data-scene="starry" onclick="selectScene('starry')">✨ 星空</div>
+        <div class="scene-opt" data-scene="room" onclick="selectScene('room')">🏠 小屋</div>
+      </div>
+    </div>
+
+    <div class="custom-section">
+      <label>团团的声音</label>
+      <div class="voice-options">
+        <div class="voice-opt active" data-voice="zh_female_xiaohe_uranus_bigtts" onclick="selectVoice('zh_female_xiaohe_uranus_bigtts')">🎤 小河(默认)</div>
+        <div class="voice-opt" data-voice="zh_female_vv_uranus_bigtts" onclick="selectVoice('zh_female_vv_uranus_bigtts')">🎤 微微</div>
+        <div class="voice-opt" data-voice="saturn_zh_female_keainvsheng_tob" onclick="selectVoice('saturn_zh_female_keainvsheng_tob')">🎤 可爱女生</div>
+        <div class="voice-opt" data-voice="zh_male_m191_uranus_bigtts" onclick="selectVoice('zh_male_m191_uranus_bigtts')">🎤 云舟(男)</div>
+      </div>
+    </div>
+
+    <div class="custom-actions">
+      <button class="btn-secondary" onclick="closeAvatarCustom()">取消</button>
+      <button class="btn-primary" onclick="saveAvatarCustom()">💾 保存装扮</button>
+    </div>
+  </div>
+</div>
+
 <!-- 火焰进化全屏特效 -->
 <div id="evolution-overlay"></div>
 
@@ -2283,6 +2569,125 @@ async def tuantuan_insights(limit: int = 3):
         return {"status": "ok", "insights": res.data} if res.data else {"status": "ok", "insights": []}
     except Exception as e:
         return {"status": "ok", "insights": []}
+
+
+# ========== 3D熊猫 + 语音 + 形象自定义 API ==========
+
+import requests as _requests
+import uuid
+
+@app.post("/tts")
+async def tts_synthesize(request: Request):
+    """团团TTS语音合成"""
+    try:
+        payload = await request.json()
+        text = payload.get("text", "")
+        speaker = payload.get("speaker", "zh_female_xiaohe_uranus_bigtts")
+        if not text:
+            return {"status": "error", "message": "缺少text参数"}
+        
+        from coze_coding_dev_sdk import TTSClient
+        from coze_coding_utils.runtime_ctx.context import new_context
+        
+        ctx = new_context(method="tts.synthesize")
+        client = TTSClient(ctx=ctx)
+        
+        audio_url, audio_size = client.synthesize(
+            uid=str(uuid.uuid4())[:12],
+            text=text,
+            speaker=speaker,
+            audio_format="mp3",
+            sample_rate=24000,
+        )
+        
+        return {
+            "status": "ok",
+            "audio_url": audio_url,
+            "audio_size": audio_size,
+        }
+    except Exception as e:
+        logger.error(f"TTS合成失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/avatar_config")
+async def get_avatar_config(session_id: str = Query("default")):
+    """获取用户的团团形象配置"""
+    try:
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        res = sb.table("avatar_configs").select("*").eq("session_id", session_id).limit(1).execute()
+        if res.data:
+            return {"status": "ok", "config": res.data[0].get("config", {})}
+        # 默认配置
+        return {
+            "status": "ok",
+            "config": {
+                "furColor": "#ffffff",
+                "blushColor": "#ffaaaa",
+                "accessory": "none",
+                "sceneBg": "forest",
+                "voice": "zh_female_xiaohe_uranus_bigtts",
+                "voiceEnabled": True,
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取形象配置失败: {e}")
+        return {"status": "ok", "config": {
+            "furColor": "#ffffff",
+            "blushColor": "#ffaaaa",
+            "accessory": "none",
+            "sceneBg": "forest",
+            "voice": "zh_female_xiaohe_uranus_bigtts",
+            "voiceEnabled": True,
+        }}
+
+
+@app.post("/avatar_config")
+async def save_avatar_config(request: Request):
+    """保存用户的团团形象配置"""
+    try:
+        payload = await request.json()
+        session_id = payload.get("session_id", "default")
+        config = payload.get("config", {})
+        from datetime import datetime
+        
+        from storage.database.supabase_client import get_supabase_client
+        sb = get_supabase_client()
+        
+        # upsert
+        existing = sb.table("avatar_configs").select("id").eq("session_id", session_id).limit(1).execute()
+        if existing.data:
+            sb.table("avatar_configs").update({
+                "config": config,
+                "updated_at": datetime.now().isoformat(),
+            }).eq("session_id", session_id).execute()
+        else:
+            sb.table("avatar_configs").insert({
+                "session_id": session_id,
+                "config": config,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+            }).execute()
+        
+        return {"status": "ok", "message": "形象配置已保存"}
+    except Exception as e:
+        logger.error(f"保存形象配置失败: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/static/3d_panda_engine.js")
+async def serve_3d_panda_engine():
+    """提供3D熊猫引擎JS文件"""
+    js_path = os.path.join(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects"), "assets/3d_panda_engine.js")
+    try:
+        with open(js_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        from fastapi.responses import Response
+        return Response(content=content, media_type="application/javascript")
+    except Exception as e:
+        logger.error(f"读取3D引擎文件失败: {e}")
+        return Response(content="// 3D Panda Engine not available", media_type="application/javascript")
 
 
 @app.get("/chat", response_class=HTMLResponse)
