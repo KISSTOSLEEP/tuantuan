@@ -9,6 +9,7 @@
 
 import logging
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from langchain.tools import tool
 
@@ -85,10 +86,11 @@ def get_user_traits(session_id: str) -> str:
             .order("updated_at", desc=True)
             .execute()
         )
-        if not res.data:
+        data_list = cast(list[dict[str, Any]], res.data) if res.data else []
+        if not data_list:
             return "关于这个用户，团团还没有什么记忆"
         lines = ["🧠 团团记得关于你的事："]
-        for item in res.data:
+        for item in data_list:
             lines.append(f"  · {item['trait_key']}: {item['trait_value']}")
         return "\n".join(lines)
     except Exception as e:
@@ -111,7 +113,8 @@ def get_tuantuan_latest_mood() -> str:
         )
         if not res.data:
             return "团团今天还没有记录心情"
-        m = res.data[0]
+        m_list = cast(list[dict[str, Any]], res.data)
+        m = m_list[0]
         return f"团团当前心情：{m['mood_label']}（{m['mood_score']}/10）"
     except Exception as e:
         logger.error(f"获取团团心情失败: {e}")
@@ -152,9 +155,11 @@ def get_tuantuan_insights(limit: int = 5) -> str:
         )
         if not res.data:
             return "团团还没有记录过任何洞察"
+        insight_list = cast(list[dict[str, Any]], res.data)
         lines = ["📖 团团的学习笔记："]
-        for item in res.data:
-            src = f"（来自：{item['source'][:40]}）" if item.get("source") else ""
+        for item in insight_list:
+            src_val = item.get("source", "")
+            src = f"（来自：{str(src_val)[:40]}）" if src_val else ""
             lines.append(f"  · {item['insight']} {src}")
         return "\n".join(lines)
     except Exception as e:
